@@ -1,0 +1,6 @@
+requests
+click
+python-dotenv
+polling2
+google-auth-oauthlib
+google-api-python-client
