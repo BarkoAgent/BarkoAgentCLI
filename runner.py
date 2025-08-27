@@ -1,3 +1,5 @@
+import json
+
 import click
 from cli_manager import CLIManager
 
@@ -11,8 +13,8 @@ def cli(ctx, config):
 @click.pass_context
 def login_local(ctx):
     cli_manager = ctx.obj
-    temp = cli_manager.get_local_user_token()
-    click.echo(f"User {temp['userEmail']} [{temp['userName']}] - {temp['message']}")
+    output = cli_manager.get_local_user_token()
+    click.echo(f"User: email - {output['userEmail']},  username - {output['userName']}, message - {output['message']}")
 
 
 @cli.command()
@@ -20,8 +22,10 @@ def login_local(ctx):
 @click.pass_context
 def get_project_data(ctx, project_id):
     cli_manager = ctx.obj
-    temp = cli_manager.get_project_data(project_id)
-    click.echo(f"get_project_data: {temp}")
+    output = cli_manager.get_project_data(project_id)
+    pretty = json.dumps(output, indent=2, ensure_ascii=False)
+    click.echo("get_project_data")
+    click.echo(pretty)
 
 @cli.command()
 @click.option('--project-id', help='project ID for running single script')
@@ -29,8 +33,10 @@ def get_project_data(ctx, project_id):
 @click.pass_context
 def run_single_script(ctx, project_id, chat_id):
     cli_manager = ctx.obj
-    temp = cli_manager.run_single_script(project_id, chat_id)
-    click.echo(f"run_single_script: {temp}")
+    output = cli_manager.run_single_script(project_id, chat_id)
+    pretty = json.dumps(output, indent=2, ensure_ascii=False)
+    click.echo("run_single_script")
+    click.echo(pretty)
 
 
 @cli.command()
@@ -38,8 +44,10 @@ def run_single_script(ctx, project_id, chat_id):
 @click.pass_context
 def run_all_scripts(ctx, project_id):
     cli_manager = ctx.obj
-    temp = cli_manager.run_all_scripts(project_id)
-    click.echo(f"run_all_scripts: {temp}")
+    output = cli_manager.run_all_scripts(project_id)
+    pretty = json.dumps(output, indent=2, ensure_ascii=False)
+    click.echo("run_all_scripts")
+    click.echo(pretty)
 
 
 @cli.command()
@@ -47,8 +55,10 @@ def run_all_scripts(ctx, project_id):
 @click.pass_context
 def get_all_results(ctx, project_id):
     cli_manager = ctx.obj
-    temp = cli_manager.get_test_results(project_id)
-    click.echo(f"get_all_results: {temp}")
+    output = cli_manager.get_test_results(project_id)
+    pretty = json.dumps(output, indent=2, ensure_ascii=False)
+    click.echo("get_all_results")
+    click.echo(pretty)
 
 
 @cli.command()

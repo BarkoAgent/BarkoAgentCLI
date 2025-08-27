@@ -64,8 +64,20 @@ class CLIManager:
         }
         res = self.requests_session.get(url, headers=headers, timeout=10)
         res.raise_for_status()
-        data = res.json()
-        return data
+        raw_data = res.json()
+        # Clean out the data for output
+        project_info : dict = raw_data[1][0]
+        project_info.pop('idx')
+
+        chats_info = raw_data[2]
+        chat_entries_info = raw_data[4]
+
+        formatted_data = {
+            'chats_size': len(chats_info),
+            'chat_entries_size': len(chat_entries_info)
+        }
+        formatted_data = formatted_data | project_info
+        return formatted_data
 
     def get_brain_status(self, project_id):
         if not self.__token:
@@ -80,7 +92,7 @@ class CLIManager:
         res = self.requests_session.get(url, headers=headers, timeout=10)
         res.raise_for_status()
         brain_state = res.json()
-        click.echo(f'Polling brain status {brain_state['ready']}')
+        click.echo(f'Polling brain status: {brain_state['ready']}')
         return brain_state['ready']
 
     def run_single_script(self, project_id, chat_id):
