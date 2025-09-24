@@ -1,7 +1,5 @@
 import click
-from src.main import CLIManager
-
-
+from cli_manager import CLIManager
 
 @click.group()
 @click.option('--config', default='config.yml')
@@ -9,13 +7,12 @@ from src.main import CLIManager
 def cli(ctx, config):
     ctx.ensure_object(CLIManager)
 
-
 @cli.command()
 @click.pass_context
 def login_local(ctx):
     cli_manager = ctx.obj
     temp = cli_manager.get_local_user_token()
-    click.echo(f"login_local: {temp}")
+    click.echo(f"User {temp['userEmail']} [{temp['userName']}] - {temp['message']}")
 
 
 @cli.command()

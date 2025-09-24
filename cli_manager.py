@@ -7,14 +7,9 @@ import requests
 import polling2
 import click
 from dotenv import load_dotenv
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
-
 
 
 class CLIManager:
-        # Specify the scopes your app requires, e.g., for Google Drive:
-    __SCOPES = ['https://www.googleapis.com/auth/drive.metadata.readonly']
     __CACHE_PATH = Path(Path.cwd() / ".barkoagent-cache.json")
 
     def __init__(self):
@@ -24,12 +19,13 @@ class CLIManager:
         self.__token_expiry = None
 
         # Remove cache file if older than a day
-        current_modified_time = os.path.getmtime(self.__CACHE_PATH)
-        modification_time = datetime.fromtimestamp(current_modified_time)
-        now = datetime.now()
-        time_delta = now - modification_time
-        if time_delta.days > 0 and os.path.exists(self.__CACHE_PATH):
-            os.remove(self.__CACHE_PATH)
+        if os.path.isfile(self.__CACHE_PATH):
+            current_modified_time = os.path.getmtime(self.__CACHE_PATH)
+            modification_time = datetime.fromtimestamp(current_modified_time)
+            now = datetime.now()
+            time_delta = now - modification_time
+            if time_delta.days > 0 and os.path.exists(self.__CACHE_PATH):
+                os.remove(self.__CACHE_PATH)
 
     def _read_token(self):
         with open(self.__CACHE_PATH) as f:
