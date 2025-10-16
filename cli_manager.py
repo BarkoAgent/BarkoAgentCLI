@@ -1,7 +1,8 @@
 import json
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 from pathlib import Path
+import re
 
 import requests
 import polling2
@@ -15,8 +16,13 @@ class CLIManager:
     def __init__(self):
         load_dotenv('.env')
         self.requests_session = requests.Session()
-        self.__token = None
+        self.__token = os.getenv("TOKEN")
         self.__token_expiry = None
+        endpoint_to_verify = os.getenv("URL")
+
+        # Verify the URL is valid and correct
+        self.__verify_correct_environment(endpoint_to_verify)
+        self.__endpoint = endpoint_to_verify
 
         # Remove cache file if older than a day
         if os.path.isfile(self.__CACHE_PATH):
@@ -32,37 +38,17 @@ class CLIManager:
             config_file = json.load(f)
             self.__token = config_file['token']
 
-
-    def get_local_user_token(self):
-        user_email = os.getenv("USER_EMAIL")
-        user_password = os.getenv("USER_PASSWORD")
-
-        url = "http://localhost:8345/api/users/login"
-
-        payload = {
-            "username": user_email, "password": user_password
-        }
-        headers = {
-            'Content-Type': 'application/json',
-            'Allow': 'application/json',
-        }
-        response = self.requests_session.post(url, json=payload, headers=headers, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        self.__token = data['accessToken']
-        self.__token_expiry = datetime.now(timezone.utc) + (timedelta(hours=24))
-        with self.__CACHE_PATH.open("w", encoding="utf-8") as f:
-            json.dump({"token": self.__token}, f)
-        return data
+    def __verify_correct_environment(self, url):
+        reg_ex_result = re.search("https://[a-z]+\.barkoagent\.com",url)
+        return reg_ex_result is not None
 
     def get_project_data(self, project_id):
         self._read_token()
-        url = f'http://localhost:8345/api/general/get-data/{project_id}'
         headers = {
             "Authorization": f"Bearer {self.__token}",
             "Accept": "application/json",
         }
-        res = self.requests_session.get(url, headers=headers, timeout=10)
+        res = self.requests_session.get(f'{self.__endpoint}/api/general/get-data/{project_id}', headers=headers, timeout=10)
         res.raise_for_status()
         raw_data = res.json()
         # Clean out the data for output
@@ -82,14 +68,13 @@ class CLIManager:
     def get_brain_status(self, project_id):
         if not self.__token:
             self._read_token()
-        url = f'http://localhost:8345/api/chats/brain_status?project_id={project_id}'
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.__token}",
             "Accept": "application/json",
         }
 
-        res = self.requests_session.get(url, headers=headers, timeout=10)
+        res = self.requests_session.get(f'{self.__endpoint}/api/chats/brain_status?project_id={project_id}', headers=headers, timeout=10)
         res.raise_for_status()
         brain_state = res.json()
         click.echo(f'Polling brain status: {brain_state['ready']}')
@@ -103,13 +88,12 @@ class CLIManager:
             step=2,
             poll_forever=True
         )
-        url = f'http://localhost:8345/api/chats/run_script/{project_id}/{chat_id}'
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.__token}",
             "Accept": "application/json",
         }
-        res = self.requests_session.post(url, json=[], headers=headers, timeout=10)
+        res = self.requests_session.post(f'{self.__endpoint}/api/chats/run_script/{project_id}/{chat_id}', json=[], headers=headers, timeout=10)
         res.raise_for_status()
         data = res.json()
         existing_data = None
@@ -128,13 +112,12 @@ class CLIManager:
             step=2,
             poll_forever=True
         )
-        url = f'http://localhost:8345/api/chats/run_script?project_id={project_id}'
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.__token}",
             "Accept": "application/json",
         }
-        res = self.requests_session.post(url, json=[], headers=headers, timeout=10)
+        res = self.requests_session.post(f'{self.__endpoint}/api/chats/run_script?project_id={project_id}', json=[], headers=headers, timeout=10)
         res.raise_for_status()
         data = res.json()
         existing_data = None
@@ -161,7 +144,6 @@ class CLIManager:
         with self.__CACHE_PATH.open("r", encoding="utf-8") as f:
             existing_data = json.load(f)
 
-        url = f"http://localhost:8345/api/chats/script_results?project_id={project_id}"
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.__token}",
@@ -169,7 +151,66 @@ class CLIManager:
         }
 
         chat_task_pairs = existing_data['tasks']
-        res = self.requests_session.post(url, json=chat_task_pairs, headers=headers, timeout=10)
+        res = self.requests_session.post(f'{self.__endpoint}/api/chats/script_results?project_id={project_id}', json=chat_task_pairs, headers=headers, timeout=10)
+        res.raise_for_status()
+        data = res.json()
+        return data
+
+    def get_batch_test_reports_list(self, project_id, limit=20, offset=0):
+        self._read_token()
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.__token}",
+            "Accept": "application/json",
+        }
+
+        res = self.requests_session.get(f'{self.__endpoint}/api/chats/project_reports/{project_id}?limit={limit}&offet={offset}',headers=headers, timeout=10)
+        res.raise_for_status()
+        data = res.json()
+        return data
+
+    def get_batch_report_details(self, batch_report_id):
+        self._read_token()
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.__token}",
+            "Accept": "application/json",
+        }
+
+        res = self.requests_session.get(
+            f'{self.__endpoint}/api/chats/batch_report/{batch_report_id}', headers=headers, timeout=10)
+        res.raise_for_status()
+        data = res.json()
+        return data
+
+    def get_batch_executions(self, batch_report_id, limit=20, offset=0):
+        self._read_token()
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.__token}",
+            "Accept": "application/json",
+        }
+
+        res = self.requests_session.get(
+            f'{self.__endpoint}/api/chats/batch_report/{batch_report_id}/executions?limit={limit}&offet={offset}', headers=headers, timeout=10)
+        res.raise_for_status()
+        data = res.json()
+        return data
+
+    def delete_batch_report(self, batch_report_id):
+        self._read_token()
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.__token}",
+            "Accept": "application/json",
+        }
+
+        res = self.requests_session.delete(
+            f'{self.__endpoint}/api/chats/batch_report/{batch_report_id}', headers=headers, timeout=10)
         res.raise_for_status()
         data = res.json()
         return data
