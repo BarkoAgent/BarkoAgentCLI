@@ -33,17 +33,15 @@ class CLIManager:
             if time_delta.days > 0 and os.path.exists(self.__CACHE_PATH):
                 os.remove(self.__CACHE_PATH)
 
-    def _read_token(self):
-        with open(self.__CACHE_PATH) as f:
-            config_file = json.load(f)
-            self.__token = config_file['token']
+        # Create new cache file then
+        Path(self.__CACHE_PATH).touch()
 
-    def __verify_correct_environment(self, url):
+    @classmethod
+    def __verify_correct_environment(cls, url):
         reg_ex_result = re.search("https://[a-z]+\.barkoagent\.com",url)
         return reg_ex_result is not None
 
     def get_project_data(self, project_id):
-        self._read_token()
         headers = {
             "Authorization": f"Bearer {self.__token}",
             "Accept": "application/json",
@@ -66,8 +64,6 @@ class CLIManager:
         return formatted_data
 
     def get_brain_status(self, project_id):
-        if not self.__token:
-            self._read_token()
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.__token}",
@@ -81,7 +77,6 @@ class CLIManager:
         return brain_state['ready']
 
     def run_single_script(self, project_id, chat_id):
-        self._read_token()
         # Poll brain_status until ready
         polling2.poll(
             lambda: self.get_brain_status(project_id) == True,
@@ -105,7 +100,6 @@ class CLIManager:
         return data
 
     def run_all_scripts(self, project_id):
-        self._read_token()
         # Poll brain_status until ready
         polling2.poll(
             lambda: self.get_brain_status(project_id) == True,
@@ -133,7 +127,6 @@ class CLIManager:
         return data
 
     def get_test_results(self, project_id):
-        self._read_token()
         # Poll brain_status until ready
         polling2.poll(
             lambda: self.get_brain_status(project_id) == True,
@@ -157,7 +150,6 @@ class CLIManager:
         return data
 
     def get_batch_test_reports_list(self, project_id, limit=20, offset=0):
-        self._read_token()
 
         headers = {
             "Content-Type": "application/json",
@@ -171,7 +163,6 @@ class CLIManager:
         return data
 
     def get_batch_report_details(self, batch_report_id):
-        self._read_token()
 
         headers = {
             "Content-Type": "application/json",
@@ -186,8 +177,6 @@ class CLIManager:
         return data
 
     def get_batch_executions(self, batch_report_id, limit=20, offset=0):
-        self._read_token()
-
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.__token}",
@@ -201,8 +190,6 @@ class CLIManager:
         return data
 
     def delete_batch_report(self, batch_report_id):
-        self._read_token()
-
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.__token}",
