@@ -69,7 +69,7 @@ class CLIManager:
         click.echo(f'Polling brain status: {brain_state['ready']}')
         return bool(brain_state['ready'])
 
-    def run_single_script(self, project_id: str, chat_id: str) -> Any:
+    def run_single_script(self, project_id: str, chat_id: str, generate_report: bool = False) -> Any:
         # Poll brain_status until ready
         polling2.poll(
             lambda: self.get_brain_status(project_id) == True,
@@ -81,12 +81,12 @@ class CLIManager:
             "Authorization": f"Bearer {self.__token}",
             "Accept": "application/json",
         }
-        res = self.requests_session.post(f'{self.__endpoint}/api/chats/run_script/{project_id}/{chat_id}', json=[], headers=headers, timeout=10)
+        res = self.requests_session.post(f'{self.__endpoint}/api/chats/run_script/{project_id}/{chat_id}', json={"generate_report": generate_report}, headers=headers, timeout=10)
         res.raise_for_status()
         data = res.json()
         return data
 
-    def run_all_scripts(self, project_id: str) -> Any:
+    def run_all_scripts(self, project_id: str, generate_report: bool = False) -> Any:
         # Poll brain_status until ready
         polling2.poll(
             lambda: self.get_brain_status(project_id) == True,
@@ -98,7 +98,7 @@ class CLIManager:
             "Authorization": f"Bearer {self.__token}",
             "Accept": "application/json",
         }
-        res = self.requests_session.post(f'{self.__endpoint}/api/chats/run_script?project_id={project_id}', json=[], headers=headers, timeout=10)
+        res = self.requests_session.post(f'{self.__endpoint}/api/chats/run_script?project_id={project_id}', json={"generate_report": generate_report}, headers=headers, timeout=10)
         res.raise_for_status()
         data = res.json()
         existing_data = None
