@@ -11,8 +11,6 @@ from dotenv import load_dotenv
 
 
 class CLIManager:
-    __CACHE_PATH = Path(Path.cwd() / ".barkoagent-cache.json")
-
     def __init__(self) -> None:
         load_dotenv('.env')
         self.requests_session = requests.Session()
@@ -109,10 +107,6 @@ class CLIManager:
             step=2,
             poll_forever=True
         )
-        existing_data = None
-        with self.__CACHE_PATH.open("r", encoding="utf-8") as f:
-            existing_data = json.load(f)
-
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.__token}",
