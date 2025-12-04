@@ -3,6 +3,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 import re
+from typing import Any
 
 import requests
 import polling2
@@ -13,7 +14,7 @@ from dotenv import load_dotenv
 class CLIManager:
     __CACHE_PATH = Path(Path.cwd() / ".barkoagent-cache.json")
 
-    def __init__(self):
+    def __init__(self) -> None:
         load_dotenv('.env')
         self.requests_session = requests.Session()
         self.__token = os.getenv("TOKEN")
@@ -24,24 +25,16 @@ class CLIManager:
         self.__verify_correct_environment(endpoint_to_verify)
         self.__endpoint = endpoint_to_verify
 
-        # Remove cache file if older than a day
-        if os.path.isfile(self.__CACHE_PATH):
-            current_modified_time = os.path.getmtime(self.__CACHE_PATH)
-            modification_time = datetime.fromtimestamp(current_modified_time)
-            now = datetime.now()
-            time_delta = now - modification_time
-            if time_delta.days > 0 and os.path.exists(self.__CACHE_PATH):
-                os.remove(self.__CACHE_PATH)
-
-        # Create new cache file then
-        Path(self.__CACHE_PATH).touch()
 
     @classmethod
-    def __verify_correct_environment(cls, url):
-        reg_ex_result = re.search("https://[a-z]+\.barkoagent\.com",url)
+    def __verify_correct_environment(cls, url: str | None) -> bool:
+        if url is None:
+            raise ValueError("Please enter URL in your .env file!")
+
+        reg_ex_result = re.search("https://[a-z]+.barkoagent.com",str(url))
         return reg_ex_result is not None
 
-    def get_project_data(self, project_id):
+    def get_project_data(self, project_id: str) -> dict[str, int]:
         headers = {
             "Authorization": f"Bearer {self.__token}",
             "Accept": "application/json",
@@ -50,20 +43,20 @@ class CLIManager:
         res.raise_for_status()
         raw_data = res.json()
         # Clean out the data for output
-        project_info : dict = raw_data[1][0]
+        project_info = raw_data[1][0]
         project_info.pop('idx')
 
         chats_info = raw_data[2]
         chat_entries_info = raw_data[4]
 
-        formatted_data = {
+        formatted_data: dict[str,int] = {
             'chats_size': len(chats_info),
             'chat_entries_size': len(chat_entries_info)
         }
         formatted_data = formatted_data | project_info
         return formatted_data
 
-    def get_brain_status(self, project_id):
+    def get_brain_status(self, project_id: str) -> bool:
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.__token}",
@@ -74,9 +67,9 @@ class CLIManager:
         res.raise_for_status()
         brain_state = res.json()
         click.echo(f'Polling brain status: {brain_state['ready']}')
-        return brain_state['ready']
+        return bool(brain_state['ready'])
 
-    def run_single_script(self, project_id, chat_id):
+    def run_single_script(self, project_id: str, chat_id: str, generate_report: bool = False) -> Any:
         # Poll brain_status until ready
         polling2.poll(
             lambda: self.get_brain_status(project_id) == True,
@@ -88,18 +81,12 @@ class CLIManager:
             "Authorization": f"Bearer {self.__token}",
             "Accept": "application/json",
         }
-        res = self.requests_session.post(f'{self.__endpoint}/api/chats/run_script/{project_id}/{chat_id}', json=[], headers=headers, timeout=10)
+        res = self.requests_session.post(f'{self.__endpoint}/api/chats/run_script/{project_id}/{chat_id}', json={"generate_report": generate_report}, headers=headers, timeout=10)
         res.raise_for_status()
         data = res.json()
-        existing_data = None
-        with self.__CACHE_PATH.open("r", encoding="utf-8") as f:
-            existing_data = json.load(f)
-        with self.__CACHE_PATH.open("a", encoding="utf-8") as f:
-            existing_data['tasks'] = data['submitted_tasks']
-            json.dump(existing_data, f)
         return data
 
-    def run_all_scripts(self, project_id):
+    def run_all_scripts(self, project_id: str, generate_report: bool = False) -> Any:
         # Poll brain_status until ready
         polling2.poll(
             lambda: self.get_brain_status(project_id) == True,
@@ -111,7 +98,7 @@ class CLIManager:
             "Authorization": f"Bearer {self.__token}",
             "Accept": "application/json",
         }
-        res = self.requests_session.post(f'{self.__endpoint}/api/chats/run_script?project_id={project_id}', json=[], headers=headers, timeout=10)
+        res = self.requests_session.post(f'{self.__endpoint}/api/chats/run_script?project_id={project_id}', json={"generate_report": generate_report}, headers=headers, timeout=10)
         res.raise_for_status()
         data = res.json()
         existing_data = None
@@ -126,7 +113,7 @@ class CLIManager:
             json.dump(existing_data, f)
         return data
 
-    def get_test_results(self, project_id):
+    def get_test_results(self, project_id: str) -> Any:
         # Poll brain_status until ready
         polling2.poll(
             lambda: self.get_brain_status(project_id) == True,
@@ -149,8 +136,7 @@ class CLIManager:
         data = res.json()
         return data
 
-    def get_batch_test_reports_list(self, project_id, limit=20, offset=0):
-
+    def get_batch_test_reports_list(self, project_id:str, limit: int=20, offset: int=0) -> Any:
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.__token}",
@@ -162,8 +148,7 @@ class CLIManager:
         data = res.json()
         return data
 
-    def get_batch_report_details(self, batch_report_id):
-
+    def get_batch_report_details(self, batch_report_id: str) -> Any:
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.__token}",
@@ -176,7 +161,7 @@ class CLIManager:
         data = res.json()
         return data
 
-    def get_batch_executions(self, batch_report_id, limit=20, offset=0):
+    def get_batch_executions(self, batch_report_id: str, limit: int=20, offset: int=0) -> Any:
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.__token}",
@@ -189,7 +174,7 @@ class CLIManager:
         data = res.json()
         return data
 
-    def delete_batch_report(self, batch_report_id):
+    def delete_batch_report(self, batch_report_id: str) -> Any:
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.__token}",
@@ -202,7 +187,7 @@ class CLIManager:
         data = res.json()
         return data
 
-    def exit_client(self):
+    def exit_client(self) -> None:
         if os.path.exists(self.__CACHE_PATH):
             os.remove(self.__CACHE_PATH)
         else:
