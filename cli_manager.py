@@ -116,11 +116,7 @@ class CLIManager:
         data = res.json()
         return data
 
-<<<<<<< Updated upstream
-    def get_test_results(self, project_id):
-=======
     def get_test_results(self, project_id: str, payload: list) -> Any:
->>>>>>> Stashed changes
         # Poll brain_status until ready
         polling2.poll(
             lambda: self.get_brain_status(project_id) == True,
@@ -194,16 +190,4 @@ class CLIManager:
         res.raise_for_status()
         data = res.json()
         return data
-
-<<<<<<< Updated upstream
-    def exit_client(self):
-        if os.path.exists(self.__CACHE_PATH):
-            os.remove(self.__CACHE_PATH)
-        else:
-            click.echo("Client encountered unexpected issue - MISSING CACHE FILE")
-
-
-
-=======
->>>>>>> Stashed changes
 
