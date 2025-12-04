@@ -114,19 +114,13 @@ class CLIManager:
         res = self.requests_session.post(f'{self.__endpoint}/api/chats/run_script?project_id={project_id}', json=[], headers=headers, timeout=10)
         res.raise_for_status()
         data = res.json()
-        existing_data = None
-        with self.__CACHE_PATH.open("r", encoding="utf-8") as f:
-            existing_data = json.load(f)
-
-        with self.__CACHE_PATH.open("w", encoding="utf-8") as f:
-            lst = []
-            for chat_id, task_id in data['submitted_tasks'].items():
-                lst.append({"chat_id": chat_id, "task_id": task_id})
-            existing_data['tasks'] = lst
-            json.dump(existing_data, f)
         return data
 
+<<<<<<< Updated upstream
     def get_test_results(self, project_id):
+=======
+    def get_test_results(self, project_id: str, payload: list) -> Any:
+>>>>>>> Stashed changes
         # Poll brain_status until ready
         polling2.poll(
             lambda: self.get_brain_status(project_id) == True,
@@ -143,8 +137,7 @@ class CLIManager:
             "Accept": "application/json",
         }
 
-        chat_task_pairs = existing_data['tasks']
-        res = self.requests_session.post(f'{self.__endpoint}/api/chats/script_results?project_id={project_id}', json=chat_task_pairs, headers=headers, timeout=10)
+        res = self.requests_session.post(f'{self.__endpoint}/api/chats/script_results?project_id={project_id}', json=payload, headers=headers, timeout=10)
         res.raise_for_status()
         data = res.json()
         return data
@@ -202,6 +195,7 @@ class CLIManager:
         data = res.json()
         return data
 
+<<<<<<< Updated upstream
     def exit_client(self):
         if os.path.exists(self.__CACHE_PATH):
             os.remove(self.__CACHE_PATH)
@@ -210,4 +204,6 @@ class CLIManager:
 
 
 
+=======
+>>>>>>> Stashed changes
 

@@ -3,6 +3,28 @@ import json
 import click
 from cli_manager import CLIManager
 
+class JSONListOfDicts(click.ParamType):
+    name = "json_list_of_dicts"
+    def convert(self, value, param, ctx):
+        # value could be a string or an already-loaded Python object
+        if isinstance(value, (list, tuple)):
+            data = value
+        else:
+            try:
+                data = json.loads(value)
+            except json.JSONDecodeError as e:
+                self.fail(f"Invalid JSON: {e}", param, ctx)
+        if not isinstance(data, list):
+            self.fail("Value must be a JSON list", param, ctx)
+        for i, item in enumerate(data):
+            if not isinstance(item, dict):
+                self.fail(f"Item {i} is not an object", param, ctx)
+            if "chat_id" not in item or "task_id" not in item:
+                self.fail(f"Item {i} must contain 'chat_id' and 'task_id'", param, ctx)
+        return data
+
+JSON_LIST = JSONListOfDicts()
+
 @click.group()
 @click.option('--config', default='config.yml')
 @click.pass_context
@@ -49,14 +71,22 @@ def run_all_scripts(ctx, project_id):
 
 @cli.command()
 @click.option('--project-id', help='project ID for running single script')
+@click.option("--payload", type=JSON_LIST, help="JSON list string")
+@click.option("--payload-file", type=click.File("r"), help="File with JSON list")
 @click.pass_context
-def get_all_results(ctx, project_id):
+def get_all_results(ctx, project_id, payload, payload_file):
     cli_manager = ctx.obj
-    output = cli_manager.get_test_results(project_id)
+    if payload_file is not None:
+        payload = JSON_LIST.convert(payload_file.read(), param=None, ctx=None)
+    if payload is None:
+        raise click.UsageError("Provide --payload or --payload-file")
+    click.echo(f"Got {len(payload)} items")
+
+
+    output = cli_manager.get_test_results(project_id, payload)
     pretty = json.dumps(output, indent=2, ensure_ascii=False)
     click.echo(pretty)
 
-# get_batch_test_reports_list
 @cli.command()
 @click.option('--project-id', help='project ID for getting the batch test reports list')
 @click.pass_context
@@ -67,7 +97,6 @@ def get_batch_test_reports_list(ctx, project_id):
     click.echo(pretty)
 
 
-# get_batch_report_details
 @cli.command()
 @click.option('--batch-report-id', help='batch report ID for getting the specific batch test report')
 @click.pass_context
@@ -77,32 +106,23 @@ def get_batch_report_details(ctx, batch_report_id):
     pretty = json.dumps(output, indent=2, ensure_ascii=False)
     click.echo(pretty)
 
-# get_batch_executions
 @cli.command()
-@click.option('--project-id', help='project ID for running single script')
+@click.option('--batch-report-id', help='Batch report ID for getting batch executions')
 @click.pass_context
-def get_all_results(ctx, project_id):
+def get_batch_executions(ctx, batch_report_id):
     cli_manager = ctx.obj
-    output = cli_manager.get_test_results(project_id)
-    pretty = json.dumps(output, indent=2, ensure_ascii=False)
-    click.echo(pretty)
-
-# delete_batch_report
-@cli.command()
-@click.option('--project-id', help='project ID for running single script')
-@click.pass_context
-def get_all_results(ctx, project_id):
-    cli_manager = ctx.obj
-    output = cli_manager.get_test_results(project_id)
+    output = cli_manager.get_batch_executions(batch_report_id)
     pretty = json.dumps(output, indent=2, ensure_ascii=False)
     click.echo(pretty)
 
 @cli.command()
+@click.option('--batch-report-id', help='Batch report ID for deleting batch executions')
 @click.pass_context
-def exit_client(ctx):
+def delete_batch_report(ctx, batch_report_id):
     cli_manager = ctx.obj
-    cli_manager.exit_client()
-    ctx.obj = None
+    output = cli_manager.delete_batch_report(batch_report_id)
+    pretty = json.dumps(output, indent=2, ensure_ascii=False)
+    click.echo(pretty)
 
 
 if __name__ == '__main__':
