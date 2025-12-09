@@ -29,7 +29,18 @@ JSON_LIST = JSONListOfDicts()
 @click.option('--config', default='config.yml')
 @click.pass_context
 def cli(ctx, config):
-    ctx.ensure_object(CLIManager)
+    if ctx.invoked_subcommand != 'config':
+        ctx.ensure_object(CLIManager)
+
+@cli.command()
+@click.option("--set-token", "token", help="set the auth token used by the CLI")
+@click.option("--set-url", "url", help="set the BarkoAgent API URL")
+def config(token, url):
+    if token is None and url is None:
+        raise click.UsageError("Provide --set-token, --set-url, or both.")
+    cli_manager = CLIManager(skip_validation=True)
+    updated = cli_manager.configure(token=token, url=url)
+    click.echo(f"Configuration updated: URL={updated.get('URL','')}, TOKEN set={bool(updated.get('TOKEN'))}")
 
 @cli.command()
 @click.pass_context
@@ -62,11 +73,11 @@ def run_single_script(ctx, project_id, chat_id, report):
 
 @cli.command()
 @click.option('--project-id', help='project ID for running single script')
-@click.option('--generate-report', help='project ID for running single script', is_flag=True)
+@click.option('--junit', is_flag=True, help='generate junit xml report')
 @click.pass_context
-def run_all_scripts(ctx, project_id, generate_report: bool):
+def run_all_scripts(ctx, project_id, junit):
     cli_manager = ctx.obj
-    output = cli_manager.run_all_scripts(project_id, generate_report)
+    output = cli_manager.run_all_scripts(project_id, junit=junit)
     pretty = json.dumps(output, indent=2, ensure_ascii=False)
     click.echo(pretty)
 
