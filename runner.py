@@ -78,8 +78,9 @@ def run_single_script(ctx, project_id, chat_id, report):
 def run_all_scripts(ctx, project_id, junit):
     cli_manager = ctx.obj
     output = cli_manager.run_all_scripts(project_id, junit=junit)
-    pretty = json.dumps(output, indent=2, ensure_ascii=False)
-    click.echo(pretty)
+    if not junit:
+        pretty = json.dumps(output, indent=2, ensure_ascii=False)
+        click.echo(pretty)
 
 
 @cli.command()

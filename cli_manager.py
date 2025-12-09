@@ -136,26 +136,38 @@ class CLIManager:
                 batch_report_id = reports[0]["batch_report_id"]
             
             results, failure_detected, failure_error = self._poll_batch_executions(batch_report_id)
-            self._print_summary(results)
             if failure_error:
                 raise failure_error
+            
+            click.echo("\n" + "="*50)
+            click.echo("All tests executed!")
+            click.echo("="*50)
+            
             data["results"] = results
             data["failed"] = failure_detected
         
         return data
 
-    def _poll_batch_executions(self, batch_report_id: str) -> Tuple[List[Dict[str, Any]], bool]:
+    def _poll_batch_executions(self, batch_report_id: str) -> Tuple[List[Dict[str, Any]], bool, Any]:
         completed: List[Dict[str, Any]] = []
         seen_ids: set[str] = set()
         failure_detected = False
         start_times: Dict[str, float] = {}
         end_times: Dict[str, float] = {}
+        
+        self._render_dashboard([])
 
         while True:
+            batch_report = self.get_batch_report_details(batch_report_id)
+            batch_status = batch_report.get("status", "").lower()
+            
             response = self.get_batch_executions(batch_report_id, limit=200)
             execution_list = response.get("executions", [])
-
-            all_complete = True
+            
+            if not execution_list:
+                break
+            
+            updated = False
             for execution in execution_list:
                 normalized = self._normalize_execution(execution)
                 exec_id = normalized["id"]
@@ -163,27 +175,26 @@ class CLIManager:
                 if exec_id not in start_times:
                     start_times[exec_id] = time.time()
 
-                if not normalized["complete"]:
-                    all_complete = False
-
                 if exec_id not in seen_ids and normalized["complete"]:
                     seen_ids.add(exec_id)
                     end_times[exec_id] = time.time()
                     duration = max(0.0, end_times[exec_id] - start_times[exec_id])
                     normalized["time"] = duration
                     completed.append(normalized)
-                    self._render_dashboard(completed)
+                    updated = True
 
                     if normalized["failed"]:
                         failure_detected = True
-
-            if all_complete:
+            
+            if updated:
                 self._render_dashboard(completed)
+
+            if batch_status in {"completed", "failed", "partial_failed"}:
                 break
 
             time.sleep(2)
 
-        return completed, failure_detected
+        return completed, failure_detected, None
 
     def _normalize_execution(self, execution: Dict[str, Any]) -> Dict[str, Any]:
         status_value = execution.get("status", "").lower()
@@ -219,7 +230,8 @@ class CLIManager:
         print("\x1b[2K")
         line_count += 1
         
-        print("\x1b[2KFAILED TESTS")
+        print("\x1b[2K", end="")
+        self._console.print("FAILED TESTS", style="bold")
         line_count += 1
         if not failed:
             print("\x1b[2K  (none)")
@@ -234,7 +246,8 @@ class CLIManager:
         print("\x1b[2K")
         line_count += 1
         
-        print("\x1b[2KPASSED")
+        print("\x1b[2K", end="")
+        self._console.print("PASSED TESTS", style="bold")
         line_count += 1
         if not passed:
             print("\x1b[2K  (none)")
