@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import re
 import time
+import subprocess
 from typing import Any, Dict, List, Tuple
 
 import requests
@@ -88,7 +89,6 @@ class CLIManager:
         res = self.requests_session.get(f'{self.__endpoint}/api/chats/brain_status?project_id={project_id}', headers=headers, timeout=10)
         res.raise_for_status()
         brain_state = res.json()
-        click.echo(f'Polling brain status: {brain_state['ready']}')
         return bool(brain_state['ready'])
 
     def run_single_script(self, project_id: str, chat_id: str, generate_report: bool = False) -> Any:
@@ -108,7 +108,7 @@ class CLIManager:
         data = res.json()
         return data
 
-    def run_all_scripts(self, project_id: str, generate_report: bool = False, junit: bool = False) -> Any:
+    def run_all_scripts(self, project_id: str, generate_report: bool = None, junit: bool = False, html: bool = False, return_data: bool = True) -> Any:
         # Poll brain_status until ready
         polling2.poll(
             lambda: self.get_brain_status(project_id) == True,
@@ -125,7 +125,9 @@ class CLIManager:
         res.raise_for_status()
         data = res.json()
         
-        if junit:
+        batch_report_id = None
+        
+        if junit or html:
             batch_report_id = data.get("batch_report_id")
             if not batch_report_id:
                 time.sleep(2)
@@ -134,21 +136,21 @@ class CLIManager:
                 if not reports:
                     raise RuntimeError("No batch reports found. The batch report may still be initializing.")
                 batch_report_id = reports[0]["batch_report_id"]
-            
-            results, failure_detected, failure_error = self._poll_batch_executions(batch_report_id)
+        
+        if junit:
+            results, failure_detected, failure_error = self._poll_batch_executions(batch_report_id, html=html, project_id=project_id)
             if failure_error:
                 raise failure_error
-            
-            click.echo("\n" + "="*50)
-            click.echo("All tests executed!")
-            click.echo("="*50)
             
             data["results"] = results
             data["failed"] = failure_detected
         
-        return data
+        if return_data:
+            if html and batch_report_id:
+                self._generate_html_report(project_id, batch_report_id)
+            return data
 
-    def _poll_batch_executions(self, batch_report_id: str) -> Tuple[List[Dict[str, Any]], bool, Any]:
+    def _poll_batch_executions(self, batch_report_id: str, html: bool = False, project_id: str = None) -> Tuple[List[Dict[str, Any]], bool, Any]:
         completed: List[Dict[str, Any]] = []
         seen_ids: set[str] = set()
         failure_detected = False
@@ -193,6 +195,11 @@ class CLIManager:
                 break
 
             time.sleep(2)
+
+        print(f"\n\x1b[1mAll tests executed!\x1b[0m")
+        
+        if html and project_id and batch_report_id:
+            self._generate_html_report(project_id, batch_report_id)
 
         return completed, failure_detected, None
 
@@ -329,3 +336,70 @@ class CLIManager:
         res.raise_for_status()
         data = res.json()
         return data
+
+    def _generate_html_report(self, project_id: str, batch_report_id: str) -> None:
+        try:
+            batch_report = self.get_batch_report_details(batch_report_id)
+            
+            executions_response = self.get_batch_executions(batch_report_id, limit=200, offset=0)
+            executions = executions_response.get('executions', [])
+            
+            try:
+                project_data = self.get_project_data(project_id)
+                project_name = project_data.get('name', f'Project_{project_id}')
+            except Exception as e:
+                project_name = f"Project_{project_id}"
+            
+            report_data = {
+                'reports': [batch_report],
+                'executions': executions,
+                'projectName': project_name
+            }
+            
+            frontend_path = Path(__file__).parent.parent.parent / 'lalama' / 'lalama' / 'lalama-frontend'
+            template_path = frontend_path / 'src' / 'components' / 'Projects' / 'ProjectReports' / 'all-reports-template.js'
+            
+            if not template_path.exists():
+                click.echo(f"Warning: Frontend template not found at {template_path}")
+                click.echo("HTML report generation skipped.")
+                return
+            
+            safe_project_name = "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in project_name)
+            
+            reports_dir = Path('Reports')
+            reports_dir.mkdir(exist_ok=True)
+            
+            output_filename = reports_dir / f"{safe_project_name}_test_report_{batch_report_id}.html"
+            
+            node_script = f'''
+const {{ generateAllReportsHTML }} = require('{template_path.as_posix()}');
+const fs = require('fs');
+
+const data = {json.dumps(report_data)};
+const html = generateAllReportsHTML(data.reports, data.executions, data.projectName);
+
+fs.writeFileSync('{output_filename.as_posix()}', html, 'utf-8');
+console.log('HTML report generated: {output_filename}');
+'''
+            
+            temp_script_path = Path('temp_generate_html.js')
+            temp_script_path.write_text(node_script)
+            
+            result = subprocess.run(
+                ['node', str(temp_script_path)],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            temp_script_path.unlink()
+            
+            if result.returncode == 0:
+                print(f"\x1b[1mHTML report generated: {output_filename}\x1b[0m")
+            else:
+                click.echo(f"Error generating HTML report: {result.stderr}")
+                
+        except subprocess.TimeoutExpired:
+            click.echo("Error: HTML generation timed out")
+        except Exception as e:
+            click.echo(f"Error generating HTML report: {str(e)}")
