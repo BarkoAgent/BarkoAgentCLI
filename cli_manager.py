@@ -411,11 +411,10 @@ class CLIManager:
                 'projectName': project_name
             }
             
-            frontend_path = Path(__file__).parent.parent.parent / 'lalama' / 'lalama' / 'lalama-frontend'
-            template_path = frontend_path / 'src' / 'components' / 'Projects' / 'ProjectReports' / 'all-reports-template.js'
+            template_path = Path(__file__).parent / 'utils' / 'report_template.js'
             
             if not template_path.exists():
-                click.echo(f"Warning: Frontend template not found at {template_path}")
+                click.echo(f"Warning: Report template not found at {template_path}")
                 click.echo("HTML report generation skipped.")
                 return
             
