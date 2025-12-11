@@ -91,22 +91,47 @@ class CLIManager:
         brain_state = res.json()
         return bool(brain_state['ready'])
 
-    def run_single_script(self, project_id: str, chat_id: str, generate_report: bool = False) -> Any:
+    def run_single_script(self, project_id: str, chat_id: str, junit: bool = False, html: bool = False, return_data: bool = True) -> Any:
         # Poll brain_status until ready
         polling2.poll(
             lambda: self.get_brain_status(project_id) == True,
             step=2,
             poll_forever=True
         )
+        self._dashboard_mode = junit
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.__token}",
             "Accept": "application/json",
         }
-        res = self.requests_session.post(f'{self.__endpoint}/api/chats/run_script/{project_id}/{chat_id}', json={"generate_report": generate_report}, headers=headers, timeout=10)
+        res = self.requests_session.post(f'{self.__endpoint}/api/chats/run_script/{project_id}/{chat_id}', json={"generate_report": True}, headers=headers, timeout=10)
         res.raise_for_status()
         data = res.json()
-        return data
+        
+        batch_report_id = None
+        
+        if junit or html:
+            batch_report_id = data.get("batch_report_id")
+            if not batch_report_id:
+                time.sleep(2)
+                reports_data = self.get_batch_test_reports_list(project_id, limit=1, offset=0)
+                reports = reports_data.get("reports", [])
+                if not reports:
+                    raise RuntimeError("No batch reports found. The batch report may still be initializing.")
+                batch_report_id = reports[0]["batch_report_id"]
+        
+        if junit:
+            results, failure_detected, failure_error = self._poll_batch_executions(batch_report_id, html=html, project_id=project_id, chat_id=chat_id, is_single=True)
+            if failure_error:
+                raise failure_error
+            
+            data["results"] = results
+            data["failed"] = failure_detected
+        
+        if return_data:
+            if html and batch_report_id:
+                self._generate_html_report(project_id, batch_report_id, is_single=True)
+            return data
 
     def run_all_scripts(self, project_id: str, generate_report: bool = None, junit: bool = False, html: bool = False, return_data: bool = True) -> Any:
         # Poll brain_status until ready
@@ -150,7 +175,7 @@ class CLIManager:
                 self._generate_html_report(project_id, batch_report_id)
             return data
 
-    def _poll_batch_executions(self, batch_report_id: str, html: bool = False, project_id: str = None) -> Tuple[List[Dict[str, Any]], bool, Any]:
+    def _poll_batch_executions(self, batch_report_id: str, html: bool = False, project_id: str = None, chat_id: str = None, is_single: bool = False) -> Tuple[List[Dict[str, Any]], bool, Any]:
         completed: List[Dict[str, Any]] = []
         seen_ids: set[str] = set()
         failure_detected = False
@@ -173,6 +198,9 @@ class CLIManager:
             for execution in execution_list:
                 normalized = self._normalize_execution(execution)
                 exec_id = normalized["id"]
+                
+                if chat_id and exec_id != chat_id:
+                    continue
 
                 if exec_id not in start_times:
                     start_times[exec_id] = time.time()
@@ -196,10 +224,13 @@ class CLIManager:
 
             time.sleep(2)
 
-        print(f"\n\x1b[1mAll tests executed!\x1b[0m")
+        if is_single:
+            print(f"\n\x1b[1mTest executed!\x1b[0m")
+        else:
+            print(f"\n\x1b[1mAll tests executed!\x1b[0m")
         
         if html and project_id and batch_report_id:
-            self._generate_html_report(project_id, batch_report_id)
+            self._generate_html_report(project_id, batch_report_id, is_single=is_single)
 
         return completed, failure_detected, None
 
@@ -337,7 +368,7 @@ class CLIManager:
         data = res.json()
         return data
 
-    def _generate_html_report(self, project_id: str, batch_report_id: str) -> None:
+    def _generate_html_report(self, project_id: str, batch_report_id: str, is_single: bool = False) -> None:
         try:
             batch_report = self.get_batch_report_details(batch_report_id)
             
@@ -369,7 +400,10 @@ class CLIManager:
             reports_dir = Path('Reports')
             reports_dir.mkdir(exist_ok=True)
             
-            output_filename = reports_dir / f"{safe_project_name}_test_report_{batch_report_id}.html"
+            if is_single:
+                output_filename = reports_dir / f"{safe_project_name}_single_test_report_{batch_report_id}.html"
+            else:
+                output_filename = reports_dir / f"{safe_project_name}_test_report_{batch_report_id}.html"
             
             node_script = f'''
 const {{ generateAllReportsHTML }} = require('{template_path.as_posix()}');

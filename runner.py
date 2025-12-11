@@ -61,14 +61,16 @@ def get_project_data(ctx, project_id):
 
 @cli.command()
 @click.option('--project-id', help='project ID for running single script')
-@click.option('--chat-id', help='project ID for running single script')
-@click.option('--report', help='project ID for running single script', type=bool)
+@click.option('--chat-id', help='chat ID for running single script')
+@click.option('--junit', is_flag=True, help='generate junit xml report')
+@click.option('--html', is_flag=True, help='generate html report')
 @click.pass_context
-def run_single_script(ctx, project_id, chat_id, report):
+def run_single_script(ctx, project_id, chat_id, junit, html):
     cli_manager = ctx.obj
-    output = cli_manager.run_single_script(project_id, chat_id, report)
-    pretty = json.dumps(output, indent=2, ensure_ascii=False)
-    click.echo(pretty)
+    output = cli_manager.run_single_script(project_id, chat_id, junit=junit, html=html, return_data=not junit)
+    if not junit:
+        pretty = json.dumps(output, indent=2, ensure_ascii=False)
+        click.echo(pretty)
 
 
 @cli.command()
