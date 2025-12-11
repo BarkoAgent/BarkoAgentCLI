@@ -182,7 +182,7 @@ class CLIManager:
         start_times: Dict[str, float] = {}
         end_times: Dict[str, float] = {}
         
-        self._render_dashboard([])
+        self._render_dashboard([], [])
 
         while True:
             batch_report = self.get_batch_report_details(batch_report_id)
@@ -194,30 +194,34 @@ class CLIManager:
             if not execution_list:
                 break
             
-            updated = False
+            all_tests = []
             for execution in execution_list:
                 normalized = self._normalize_execution(execution)
-                exec_id = normalized["id"]
                 
-                if chat_id and exec_id != chat_id:
+                if chat_id and normalized["id"] != chat_id:
                     continue
+                    
+                all_tests.append(normalized)
+            
+            for test in all_tests:
+                exec_id = test["id"]
 
                 if exec_id not in start_times:
                     start_times[exec_id] = time.time()
 
-                if exec_id not in seen_ids and normalized["complete"]:
+                if exec_id not in seen_ids and test["complete"]:
                     seen_ids.add(exec_id)
                     end_times[exec_id] = time.time()
                     duration = max(0.0, end_times[exec_id] - start_times[exec_id])
-                    normalized["time"] = duration
-                    completed.append(normalized)
-                    updated = True
+                    test["time"] = duration
+                    completed.append(test)
 
-                    if normalized["failed"]:
+                    if test["failed"]:
                         failure_detected = True
             
-            if updated:
-                self._render_dashboard(completed)
+            pending = [t for t in all_tests if t["id"] not in seen_ids and not t["complete"]]
+            
+            self._render_dashboard(completed, pending)
 
             if batch_status in {"completed", "failed", "partial_failed"}:
                 break
@@ -249,12 +253,15 @@ class CLIManager:
             "output": output,
         }
 
-    def _render_dashboard(self, results: List[Dict[str, Any]]):
+    def _render_dashboard(self, results: List[Dict[str, Any]], pending: List[Dict[str, Any]] = []):
         ordered = sorted(results, key=lambda r: (not r["failed"], r["name"]))
         failed = [r for r in ordered if r["failed"]]
         passed = [r for r in ordered if not r["failed"]]
         
         if self._dashboard_lines > 0:
+            print(f"\x1b[{self._dashboard_lines}A", end="", flush=True)
+            for _ in range(self._dashboard_lines):
+                print("\x1b[2K")
             print(f"\x1b[{self._dashboard_lines}A", end="", flush=True)
         
         line_count = 0
@@ -262,7 +269,8 @@ class CLIManager:
         print("\x1b[2KTest Execution Status")
         line_count += 1
         
-        print(f"\x1b[2KTotal: {len(ordered)}  Passed: \x1b[32m{len(passed)}\x1b[0m  Failed: \x1b[{'31' if failed else '32'}m{len(failed)}\x1b[0m")
+        total = len(ordered) + len(pending)
+        print(f"\x1b[2KTotal: {total}  Passed: \x1b[32m{len(passed)}\x1b[0m  Failed: \x1b[{'31' if failed else '32'}m{len(failed)}\x1b[0m  Pending: \x1b[33m{len(pending)}\x1b[0m")
         line_count += 1
         
         print("\x1b[2K")
@@ -296,6 +304,22 @@ class CLIManager:
                 self._console.print("PASSED", style="bold green", end="")
                 print(f"] {r['name']} ({r['id']}) - {r.get('time', 0):.3f}s")
                 line_count += 1
+        
+        print("\x1b[2K")
+        line_count += 1
+        
+        print("\x1b[2K", end="")
+        self._console.print("PENDING TESTS", style="bold")
+        line_count += 1
+        if not pending:
+            print("\x1b[2K  (none)")
+            line_count += 1
+        
+        for r in pending:
+            print("\x1b[2K  [", end="")
+            self._console.print("PENDING", style="bold yellow", end="")
+            print(f"] {r['name']} ({r['id']})")
+            line_count += 1
         
         self._dashboard_lines = line_count
 
