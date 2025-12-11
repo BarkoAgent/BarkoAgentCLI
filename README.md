@@ -7,12 +7,21 @@ BarkoAgentCLI is a CLI tool for triggering BarkoAgent functionalities and retrie
 To install download the tool and run installation via `pip3 install -r requirements.txt`
 
 ## Usage
-Before any usage of the CLI you need to generate an authentication token for valid execution of commands.
-The token should be inserted into `.env` file - example template in `.env.example` file
+
+### Prerequisites
+Before any usage of the CLI you need to configure the BarkoAgent environment URL and authentication token.
 
 The URL/endpoint for which BarkoAgent environment you want to run commands in is specified in `URL` value, 
-authentication token in `TOKEN` value
+and the authentication token in `TOKEN` value.
 
+You can configure these by running:
+```bash
+python3 runner.py config --set-url=<your-barkoagent-url> --set-token=<your-auth-token>
+```
+
+This will create/update the `.env` file with your credentials.
+
+### Running Commands
 To run commands you can run the help command:
 ```bash
 python3 runner.py --help
@@ -23,7 +32,19 @@ To run a command use, for example:
 python3 runner.py run-single-script --project-id=foo --chat-id=bar
 ```
 
-If anything you can run help argument to get the necessary arguments to add 
+### Available Flags
+
+- `--junit` - Generate JUnit report with live test execution dashboard
+- `--html` - Generate HTML test report
+
+Example usage:
+```bash
+python3 runner.py run-all-scripts --project-id=foo --junit --html
+python3 runner.py run-single-script --project-id=foo --chat-id=bar --junit --html
+```
+
+### Getting Help
+For any command, you can use the `--help` flag to see available options:
 ```bash
 python3 runner.py run-single-script --help
 ```
