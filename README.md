@@ -32,7 +32,7 @@ To run a command use, for example:
 python3 runner.py run-single-script --project-id=foo --chat-id=bar
 ```
 
-### Available Flags
+### Example Flags
 
 - `--junit` - Generate JUnit report with live test execution dashboard
 - `--html` - Generate HTML test report
@@ -43,8 +43,7 @@ python3 runner.py run-all-scripts --project-id=foo --junit --html
 python3 runner.py run-single-script --project-id=foo --chat-id=bar --junit --html
 ```
 
-### Getting Help
-For any command, you can use the `--help` flag to see available options:
+If anything you can run help argument to get the necessary arguments to add 
 ```bash
 python3 runner.py run-single-script --help
 ```
