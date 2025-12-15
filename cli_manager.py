@@ -425,15 +425,26 @@ class CLIManager:
             
             if is_single:
                 output_filename = reports_dir / f"{safe_project_name}_single_test_report_{batch_report_id}.html"
+                template_function = 'generateReportHTML'
+                node_script = f'''
+                    const {{ {template_function} }} = require('{template_path.as_posix()}');
+                    const fs = require('fs');
+
+                    const data = {json.dumps(report_data)};
+                    const html = {template_function}(data.reports[0], data.executions, data.projectName);
+
+                    fs.writeFileSync('{output_filename.as_posix()}', html, 'utf-8');
+                    console.log('HTML report generated: {output_filename}');
+                    '''
             else:
                 output_filename = reports_dir / f"{safe_project_name}_test_report_{batch_report_id}.html"
-            
-            node_script = f'''
-const {{ generateAllReportsHTML }} = require('{template_path.as_posix()}');
+                template_function = 'generateAllReportsHTML'
+                node_script = f'''
+const {{ {template_function} }} = require('{template_path.as_posix()}');
 const fs = require('fs');
 
 const data = {json.dumps(report_data)};
-const html = generateAllReportsHTML(data.reports, data.executions, data.projectName);
+const html = {template_function}(data.reports, data.executions, data.projectName);
 
 fs.writeFileSync('{output_filename.as_posix()}', html, 'utf-8');
 console.log('HTML report generated: {output_filename}');
@@ -460,3 +471,77 @@ console.log('HTML report generated: {output_filename}');
             click.echo("Error: HTML generation timed out")
         except Exception as e:
             click.echo(f"Error generating HTML report: {str(e)}")
+
+    def get_folders(self, project_id: str) -> List[Dict[str, Any]]:
+        headers = {
+            "Authorization": f"Bearer {self.__token}",
+            "Accept": "application/json",
+        }
+        res = self.requests_session.get(
+            f'{self.__endpoint}/api/folders/{project_id}',
+            headers=headers,
+            timeout=30
+        )
+        res.raise_for_status()
+        return res.json()
+
+    def run_folder(self, project_id: str, folder_id: str, junit: bool = False, html: bool = False, return_data: bool = True) -> Any:
+        polling2.poll(
+            lambda: self.get_brain_status(project_id) == True,
+            step=2,
+            poll_forever=True
+        )
+        self._dashboard_mode = junit
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.__token}",
+            "Accept": "application/json",
+        }
+        
+        res = self.requests_session.post(
+            f'{self.__endpoint}/api/chats/run_folder/{project_id}/{folder_id}',
+            json={"generate_report": True},
+            headers=headers,
+            timeout=10
+        )
+        try:
+            res.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            try:
+                error_detail = res.json()
+                raise RuntimeError(f"Server error: {error_detail}") from e
+            except:
+                raise RuntimeError(f"Server error: {res.text}") from e
+        data = res.json()
+        
+        batch_report_id = None
+        
+        if junit or html:
+            batch_report_id = data.get("batch_report_id")
+            if not batch_report_id:
+                time.sleep(2)
+                reports_data = self.get_batch_test_reports_list(project_id, limit=1, offset=0)
+                reports = reports_data.get("reports", [])
+                if not reports:
+                    raise RuntimeError("No batch reports found. The batch report may still be initializing.")
+                batch_report_id = reports[0]["batch_report_id"]
+        
+        if junit:
+            results, failure_detected, failure_error = self._poll_batch_executions(
+                batch_report_id,
+                html=html,
+                project_id=project_id
+            )
+            if failure_error:
+                raise failure_error
+            
+            data["results"] = results
+            data["failed"] = failure_detected
+        
+        if return_data:
+            if html and batch_report_id:
+                is_single = len(data.get("submitted_tasks", {})) == 1
+                self._generate_html_report(project_id, batch_report_id, is_single=is_single)
+            return data
+

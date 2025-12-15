@@ -141,6 +141,28 @@ def delete_batch_report(ctx, batch_report_id):
     pretty = json.dumps(output, indent=2, ensure_ascii=False)
     click.echo(pretty)
 
+@cli.command()
+@click.option('--project-id', required=True, help='project ID for getting folders')
+@click.pass_context
+def get_folders(ctx, project_id):
+    """Get all folders for a project"""
+    cli_manager = ctx.obj
+    output = cli_manager.get_folders(project_id)
+    pretty = json.dumps(output, indent=2, ensure_ascii=False)
+    click.echo(pretty)
+
+@cli.command()
+@click.option('--project-id', required=True, help='project ID for running folder scripts')
+@click.option('--folder-id', required=True, help='folder ID to run all scripts from')
+@click.option('--junit', is_flag=True, help='generate junit xml report')
+@click.option('--html', is_flag=True, help='generate html report')
+@click.pass_context
+def run_folder(ctx, project_id, folder_id, junit, html):
+    cli_manager = ctx.obj
+    output = cli_manager.run_folder(project_id, folder_id, junit=junit, html=html, return_data=not junit)
+    if not junit:
+        pretty = json.dumps(output, indent=2, ensure_ascii=False)
+        click.echo(pretty)
 
 if __name__ == '__main__':
     cli()
