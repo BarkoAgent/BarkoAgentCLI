@@ -11,6 +11,7 @@ import polling2
 import click
 from dotenv import load_dotenv
 from rich.console import Console
+from utils.report_paths import ReportPathManager
 
 
 class CLIManager:
@@ -128,9 +129,23 @@ class CLIManager:
             data["results"] = results
             data["failed"] = failure_detected
         
+        if html and batch_report_id:
+            test_title = None
+            if batch_report_id:
+                executions_response = self.get_batch_executions(batch_report_id, limit=1, offset=0)
+                executions = executions_response.get('executions', [])
+                if executions:
+                    test_title = executions[0].get('title', executions[0].get('chat_title', None))
+            
+            self._generate_html_report(
+                project_id, 
+                batch_report_id, 
+                is_single=True, 
+                report_type="single",
+                test_title=test_title
+            )
+        
         if return_data:
-            if html and batch_report_id:
-                self._generate_html_report(project_id, batch_report_id, is_single=True)
             return data
 
     def run_all_scripts(self, project_id: str, generate_report: bool = None, junit: bool = False, html: bool = False, return_data: bool = True) -> Any:
@@ -170,9 +185,15 @@ class CLIManager:
             data["results"] = results
             data["failed"] = failure_detected
         
+        if html and batch_report_id:
+            self._generate_html_report(
+                project_id, 
+                batch_report_id, 
+                is_single=False,
+                report_type="all"
+            )
+        
         if return_data:
-            if html and batch_report_id:
-                self._generate_html_report(project_id, batch_report_id)
             return data
 
     def _poll_batch_executions(self, batch_report_id: str, html: bool = False, project_id: str = None, chat_id: str = None, is_single: bool = False) -> Tuple[List[Dict[str, Any]], bool, Any]:
@@ -232,9 +253,6 @@ class CLIManager:
             print(f"\n\x1b[1mTest executed!\x1b[0m")
         else:
             print(f"\n\x1b[1mAll tests executed!\x1b[0m")
-        
-        if html and project_id and batch_report_id:
-            self._generate_html_report(project_id, batch_report_id, is_single=is_single)
 
         return completed, failure_detected, None
 
@@ -392,7 +410,15 @@ class CLIManager:
         data = res.json()
         return data
 
-    def _generate_html_report(self, project_id: str, batch_report_id: str, is_single: bool = False) -> None:
+    def _generate_html_report(
+        self, 
+        project_id: str, 
+        batch_report_id: str, 
+        is_single: bool = False,
+        report_type: str = "all",
+        test_title: str = None,
+        folder_name: str = None
+    ) -> None:
         try:
             batch_report = self.get_batch_report_details(batch_report_id)
             
@@ -418,27 +444,17 @@ class CLIManager:
                 click.echo("HTML report generation skipped.")
                 return
             
-            safe_project_name = "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in project_name)
+            path_manager = ReportPathManager()
+            template_function = 'generateAllReportsHTML'
             
-            reports_dir = Path('Reports')
-            reports_dir.mkdir(exist_ok=True)
-            
-            if is_single:
-                output_filename = reports_dir / f"{safe_project_name}_single_test_report_{batch_report_id}.html"
-                template_function = 'generateReportHTML'
-                node_script = f'''
-                    const {{ {template_function} }} = require('{template_path.as_posix()}');
-                    const fs = require('fs');
-
-                    const data = {json.dumps(report_data)};
-                    const html = {template_function}(data.reports[0], data.executions, data.projectName);
-
-                    fs.writeFileSync('{output_filename.as_posix()}', html, 'utf-8');
-                    console.log('HTML report generated: {output_filename}');
-                    '''
+            if report_type == "single":
+                if not test_title and executions:
+                    test_title = executions[0].get('title', executions[0].get('chat_title', 'test'))
+                output_filename = path_manager.get_single_report_path(project_name, test_title or 'test', batch_report_id)
+            elif report_type == "folder":
+                output_filename = path_manager.get_folder_report_path(project_name, folder_name or 'folder', batch_report_id)
             else:
-                output_filename = reports_dir / f"{safe_project_name}_test_report_{batch_report_id}.html"
-                template_function = 'generateAllReportsHTML'
+                output_filename = path_manager.get_all_reports_path(project_name, batch_report_id)
                 node_script = f'''
 const {{ {template_function} }} = require('{template_path.as_posix()}');
 const fs = require('fs');
@@ -449,7 +465,7 @@ const html = {template_function}(data.reports, data.executions, data.projectName
 fs.writeFileSync('{output_filename.as_posix()}', html, 'utf-8');
 console.log('HTML report generated: {output_filename}');
 '''
-            
+            output_filename.parent.mkdir(parents=True, exist_ok=True)
             temp_script_path = Path('temp_generate_html.js')
             temp_script_path.write_text(node_script)
             
@@ -463,9 +479,9 @@ console.log('HTML report generated: {output_filename}');
             temp_script_path.unlink()
             
             if result.returncode == 0:
-                print(f"\x1b[1mHTML report generated: {output_filename}\x1b[0m")
+                print(f"\n\x1b[1mHTML report generated: {output_filename}\x1b[0m")
             else:
-                click.echo(f"Error generating HTML report: {result.stderr}")
+                click.echo(f"\nError generating HTML report: {result.stderr}")
                 
         except subprocess.TimeoutExpired:
             click.echo("Error: HTML generation timed out")
@@ -492,6 +508,17 @@ console.log('HTML report generated: {output_filename}');
             poll_forever=True
         )
         self._dashboard_mode = junit
+        
+        folder_name = None
+        if html:
+            try:
+                folders_data = self.get_folders(project_id)
+                for folder in folders_data:
+                    if folder.get('id') == folder_id or folder.get('_id') == folder_id:
+                        folder_name = folder.get('name', folder.get('title', 'folder'))
+                        break
+            except Exception:
+                folder_name = 'folder'
         
         headers = {
             "Content-Type": "application/json",
@@ -539,9 +566,16 @@ console.log('HTML report generated: {output_filename}');
             data["results"] = results
             data["failed"] = failure_detected
         
+        if html and batch_report_id:
+            is_single = len(data.get("submitted_tasks", {})) == 1
+            self._generate_html_report(
+                project_id, 
+                batch_report_id, 
+                is_single=is_single,
+                report_type="folder",
+                folder_name=folder_name
+            )
+        
         if return_data:
-            if html and batch_report_id:
-                is_single = len(data.get("submitted_tasks", {})) == 1
-                self._generate_html_report(project_id, batch_report_id, is_single=is_single)
             return data
 
