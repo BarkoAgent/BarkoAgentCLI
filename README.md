@@ -34,7 +34,7 @@ python3 runner.py run-single-script --project-id=foo --chat-id=bar
 
 ### Example Flags
 
-- `--junit` - Generate JUnit report with live test execution dashboard
+- `--junit` - Generate JUnit XML report
 - `--html` - Generate HTML test report
 
 Example usage:
