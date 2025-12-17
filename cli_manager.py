@@ -12,6 +12,7 @@ import click
 from dotenv import load_dotenv
 from rich.console import Console
 from utils.report_paths import ReportPathManager
+from utils.junit_xml import generate_junit_xml
 
 
 class CLIManager:
@@ -121,6 +122,7 @@ class CLIManager:
                     raise RuntimeError("No batch reports found. The batch report may still be initializing.")
                 batch_report_id = reports[0]["batch_report_id"]
         
+        test_title = None
         if junit:
             results, failure_detected, failure_error = self._poll_batch_executions(batch_report_id, html=html, project_id=project_id, chat_id=chat_id, is_single=True)
             if failure_error:
@@ -128,10 +130,23 @@ class CLIManager:
             
             data["results"] = results
             data["failed"] = failure_detected
+            
+            if batch_report_id:
+                executions_response = self.get_batch_executions(batch_report_id, limit=1, offset=0)
+                executions = executions_response.get('executions', [])
+                if executions:
+                    test_title = executions[0].get('title', executions[0].get('chat_title', None))
+            
+            self._generate_junit_xml_report(
+                results=results,
+                project_id=project_id,
+                batch_report_id=batch_report_id,
+                report_type="single",
+                test_title=test_title
+            )
         
         if html and batch_report_id:
-            test_title = None
-            if batch_report_id:
+            if not test_title and batch_report_id:
                 executions_response = self.get_batch_executions(batch_report_id, limit=1, offset=0)
                 executions = executions_response.get('executions', [])
                 if executions:
@@ -184,6 +199,13 @@ class CLIManager:
             
             data["results"] = results
             data["failed"] = failure_detected
+            
+            self._generate_junit_xml_report(
+                results=results,
+                project_id=project_id,
+                batch_report_id=batch_report_id,
+                report_type="all"
+            )
         
         if html and batch_report_id:
             self._generate_html_report(
@@ -455,7 +477,7 @@ class CLIManager:
                 output_filename = path_manager.get_folder_report_path(project_name, folder_name or 'folder', batch_report_id)
             else:
                 output_filename = path_manager.get_all_reports_path(project_name, batch_report_id)
-                node_script = f'''
+            node_script = f'''
 const {{ {template_function} }} = require('{template_path.as_posix()}');
 const fs = require('fs');
 
@@ -479,14 +501,75 @@ console.log('HTML report generated: {output_filename}');
             temp_script_path.unlink()
             
             if result.returncode == 0:
-                print(f"\n\x1b[1mHTML report generated: {output_filename}\x1b[0m")
+                print(f"\x1b[1mHTML report generated: {output_filename}\x1b[0m")
             else:
-                click.echo(f"\nError generating HTML report: {result.stderr}")
+                click.echo(f"Error generating HTML report: {result.stderr}")
                 
         except subprocess.TimeoutExpired:
             click.echo("Error: HTML generation timed out")
         except Exception as e:
             click.echo(f"Error generating HTML report: {str(e)}")
+
+    def _generate_junit_xml_report(
+        self,
+        results: List[Dict[str, Any]],
+        project_id: str,
+        batch_report_id: str,
+        report_type: str = "all",
+        test_title: str = None,
+        folder_name: str = None
+    ) -> None:
+        """
+        Generate a JUnit XML report from test results.
+        
+        Args:
+            results: List of test result dictionaries
+            project_id: The project ID
+            batch_report_id: The batch report ID
+            report_type: Type of report - "single", "folder", or "all"
+            test_title: Title for single test reports
+            folder_name: Name for folder reports
+        """
+        try:
+            try:
+                project_data = self.get_project_data(project_id)
+                project_name = project_data.get('name', f'Project_{project_id}')
+            except Exception:
+                project_name = f"Project_{project_id}"
+            
+            xml_content = generate_junit_xml(
+                results=results,
+                project_name=project_name,
+                batch_report_id=batch_report_id
+            )
+            
+            path_manager = ReportPathManager()
+            
+            if report_type == "single":
+                output_path = path_manager.get_single_xml_path(
+                    project_name, 
+                    test_title or 'test', 
+                    batch_report_id
+                )
+            elif report_type == "folder":
+                output_path = path_manager.get_folder_xml_path(
+                    project_name, 
+                    folder_name or 'folder', 
+                    batch_report_id
+                )
+            else:
+                output_path = path_manager.get_all_reports_xml_path(
+                    project_name, 
+                    batch_report_id
+                )
+            
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(xml_content, encoding='utf-8')
+            
+            print(f"\x1b[1mJUnit XML report generated: {output_path}\x1b[0m")
+            
+        except Exception as e:
+            click.echo(f"Error generating JUnit XML report: {str(e)}")
 
     def get_folders(self, project_id: str) -> List[Dict[str, Any]]:
         headers = {
@@ -565,6 +648,14 @@ console.log('HTML report generated: {output_filename}');
             
             data["results"] = results
             data["failed"] = failure_detected
+            
+            self._generate_junit_xml_report(
+                results=results,
+                project_id=project_id,
+                batch_report_id=batch_report_id,
+                report_type="folder",
+                folder_name=folder_name
+            )
         
         if html and batch_report_id:
             is_single = len(data.get("submitted_tasks", {})) == 1
