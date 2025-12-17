@@ -22,7 +22,7 @@ class CLIManager:
         self.__token = os.getenv("TOKEN")
         self.__token_expiry = None
         self._dashboard_mode: bool = False
-        self._console = Console()
+        self._console = Console(highlight=False)
         self._dashboard_lines = 0
         endpoint_to_verify = os.getenv("URL")
 
@@ -196,58 +196,96 @@ class CLIManager:
         if return_data:
             return data
 
+    def _build_dashboard_text(self, results: List[Dict[str, Any]], pending: List[Dict[str, Any]] = []) -> str:
+        from rich.markup import escape
+        ordered = sorted(results, key=lambda r: (not r["failed"], r["name"]))
+        failed = [r for r in ordered if r["failed"]]
+        passed = [r for r in ordered if not r["failed"]]
+        total = len(ordered) + len(pending)
+        
+        lines = []
+        lines.append(f"Total: {total}  Passed: [green]{len(passed)}[/green]  Failed: [red]{len(failed)}[/red]  Pending: [yellow]{len(pending)}[/yellow]")
+        lines.append("")
+        lines.append("[bold]FAILED TESTS[/bold]")
+        if not failed:
+            lines.append("  (none)")
+        else:
+            for r in failed:
+                name = escape(r['name'])
+                lines.append(f"  [[bold red]FAILED[/bold red]] {name} ({r['id']}) - {r.get('time', 0):.3f}s")
+        lines.append("")
+        lines.append("[bold]PASSED TESTS[/bold]")
+        if not passed:
+            lines.append("  (none)")
+        else:
+            for r in passed:
+                name = escape(r['name'])
+                lines.append(f"  [[bold green]PASSED[/bold green]] {name} ({r['id']}) - {r.get('time', 0):.3f}s")
+        lines.append("")
+        lines.append("[bold]PENDING TESTS[/bold]")
+        if not pending:
+            lines.append("  (none)")
+        else:
+            for r in pending:
+                name = escape(r['name'])
+                lines.append(f"  [[bold yellow]PENDING[/bold yellow]] {name} ({r['id']})")
+        
+        return "\n".join(lines)
+
     def _poll_batch_executions(self, batch_report_id: str, html: bool = False, project_id: str = None, chat_id: str = None, is_single: bool = False) -> Tuple[List[Dict[str, Any]], bool, Any]:
+        from rich.live import Live
+        from rich.markup import escape
+        
         completed: List[Dict[str, Any]] = []
         seen_ids: set[str] = set()
         failure_detected = False
         start_times: Dict[str, float] = {}
         end_times: Dict[str, float] = {}
-        
-        self._render_dashboard([], [])
 
-        while True:
-            batch_report = self.get_batch_report_details(batch_report_id)
-            batch_status = batch_report.get("status", "").lower()
-            
-            response = self.get_batch_executions(batch_report_id, limit=200)
-            execution_list = response.get("executions", [])
-            
-            if not execution_list:
-                break
-            
-            all_tests = []
-            for execution in execution_list:
-                normalized = self._normalize_execution(execution)
+        with Live(self._build_dashboard_text([], []), refresh_per_second=4, console=self._console) as live:
+            while True:
+                batch_report = self.get_batch_report_details(batch_report_id)
+                batch_status = batch_report.get("status", "").lower()
                 
-                if chat_id and normalized["id"] != chat_id:
-                    continue
+                response = self.get_batch_executions(batch_report_id, limit=200)
+                execution_list = response.get("executions", [])
+                
+                if not execution_list:
+                    break
+                
+                all_tests = []
+                for execution in execution_list:
+                    normalized = self._normalize_execution(execution)
                     
-                all_tests.append(normalized)
-            
-            for test in all_tests:
-                exec_id = test["id"]
+                    if chat_id and normalized["id"] != chat_id:
+                        continue
+                        
+                    all_tests.append(normalized)
+                
+                for test in all_tests:
+                    exec_id = test["id"]
 
-                if exec_id not in start_times:
-                    start_times[exec_id] = time.time()
+                    if exec_id not in start_times:
+                        start_times[exec_id] = time.time()
 
-                if exec_id not in seen_ids and test["complete"]:
-                    seen_ids.add(exec_id)
-                    end_times[exec_id] = time.time()
-                    duration = max(0.0, end_times[exec_id] - start_times[exec_id])
-                    test["time"] = duration
-                    completed.append(test)
+                    if exec_id not in seen_ids and test["complete"]:
+                        seen_ids.add(exec_id)
+                        end_times[exec_id] = time.time()
+                        duration = max(0.0, end_times[exec_id] - start_times[exec_id])
+                        test["time"] = duration
+                        completed.append(test)
 
-                    if test["failed"]:
-                        failure_detected = True
-            
-            pending = [t for t in all_tests if t["id"] not in seen_ids and not t["complete"]]
-            
-            self._render_dashboard(completed, pending)
+                        if test["failed"]:
+                            failure_detected = True
+                
+                pending = [t for t in all_tests if t["id"] not in seen_ids and not t["complete"]]
+                
+                live.update(self._build_dashboard_text(completed, pending))
 
-            if batch_status in {"completed", "failed", "partial_failed"}:
-                break
+                if batch_status in {"completed", "failed", "partial_failed"}:
+                    break
 
-            time.sleep(2)
+                time.sleep(2)
 
         if is_single:
             print(f"\n\x1b[1mTest executed!\x1b[0m")
@@ -270,76 +308,6 @@ class CLIManager:
             "complete": status_value in {"passed", "failed"},
             "output": output,
         }
-
-    def _render_dashboard(self, results: List[Dict[str, Any]], pending: List[Dict[str, Any]] = []):
-        ordered = sorted(results, key=lambda r: (not r["failed"], r["name"]))
-        failed = [r for r in ordered if r["failed"]]
-        passed = [r for r in ordered if not r["failed"]]
-        
-        if self._dashboard_lines > 0:
-            print(f"\x1b[{self._dashboard_lines}A", end="", flush=True)
-            for _ in range(self._dashboard_lines):
-                print("\x1b[2K")
-            print(f"\x1b[{self._dashboard_lines}A", end="", flush=True)
-        
-        line_count = 0
-        
-        print("\x1b[2KTest Execution Status")
-        line_count += 1
-        
-        total = len(ordered) + len(pending)
-        print(f"\x1b[2KTotal: {total}  Passed: \x1b[32m{len(passed)}\x1b[0m  Failed: \x1b[{'31' if failed else '32'}m{len(failed)}\x1b[0m  Pending: \x1b[33m{len(pending)}\x1b[0m")
-        line_count += 1
-        
-        print("\x1b[2K")
-        line_count += 1
-        
-        print("\x1b[2K", end="")
-        self._console.print("FAILED TESTS", style="bold")
-        line_count += 1
-        if not failed:
-            print("\x1b[2K  (none)")
-            line_count += 1
-        else:
-            for r in failed:
-                print("\x1b[2K  [", end="")
-                self._console.print("FAILED", style="bold red", end="")
-                print(f"] {r['name']} ({r['id']}) - {r.get('time', 0):.3f}s")
-                line_count += 1
-        
-        print("\x1b[2K")
-        line_count += 1
-        
-        print("\x1b[2K", end="")
-        self._console.print("PASSED TESTS", style="bold")
-        line_count += 1
-        if not passed:
-            print("\x1b[2K  (none)")
-            line_count += 1
-        else:
-            for r in passed:
-                print("\x1b[2K  [", end="")
-                self._console.print("PASSED", style="bold green", end="")
-                print(f"] {r['name']} ({r['id']}) - {r.get('time', 0):.3f}s")
-                line_count += 1
-        
-        print("\x1b[2K")
-        line_count += 1
-        
-        print("\x1b[2K", end="")
-        self._console.print("PENDING TESTS", style="bold")
-        line_count += 1
-        if not pending:
-            print("\x1b[2K  (none)")
-            line_count += 1
-        
-        for r in pending:
-            print("\x1b[2K  [", end="")
-            self._console.print("PENDING", style="bold yellow", end="")
-            print(f"] {r['name']} ({r['id']})")
-            line_count += 1
-        
-        self._dashboard_lines = line_count
 
     def get_test_results(self, project_id: str, payload: list) -> Any:
         # Poll brain_status until ready
