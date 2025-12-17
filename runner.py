@@ -77,10 +77,23 @@ def run_single_script(ctx, project_id, chat_id, junit, html):
 @click.option('--project-id', help='project ID for running single script')
 @click.option('--junit', is_flag=True, help='generate junit xml report')
 @click.option('--html', is_flag=True, help='generate html report')
+@click.option('--parallel', type=int, default=1, help='parallelism level (1-4). Values > 1 require a paid plan.')
 @click.pass_context
-def run_all_scripts(ctx, project_id, junit, html):
+def run_all_scripts(ctx, project_id, junit, html, parallel):
     cli_manager = ctx.obj
-    output = cli_manager.run_all_scripts(project_id, junit=junit, html=html, return_data=not junit)
+    
+    if parallel < 1 or parallel > 4:
+        raise click.UsageError("--parallel must be between 1 and 4")
+    
+    if parallel > 1:
+        plan_type = cli_manager.get_user_plan_type()
+        if plan_type == 'free':
+            raise click.UsageError(
+                "Parallel execution (--parallel > 1) is only available for paid plans. "
+                "Please upgrade your plan to use this feature."
+            )
+    
+    output = cli_manager.run_all_scripts(project_id, junit=junit, html=html, return_data=not junit, parallelism=parallel)
     if not junit:
         pretty = json.dumps(output, indent=2, ensure_ascii=False)
         click.echo(pretty)
@@ -156,10 +169,23 @@ def get_folders(ctx, project_id):
 @click.option('--folder-id', required=True, help='folder ID to run all scripts from')
 @click.option('--junit', is_flag=True, help='generate junit xml report')
 @click.option('--html', is_flag=True, help='generate html report')
+@click.option('--parallel', type=int, default=1, help='parallelism level (1-4). Values > 1 require a paid plan.')
 @click.pass_context
-def run_folder(ctx, project_id, folder_id, junit, html):
+def run_folder(ctx, project_id, folder_id, junit, html, parallel):
     cli_manager = ctx.obj
-    output = cli_manager.run_folder(project_id, folder_id, junit=junit, html=html, return_data=not junit)
+    
+    if parallel < 1 or parallel > 4:
+        raise click.UsageError("--parallel must be between 1 and 4")
+    
+    if parallel > 1:
+        plan_type = cli_manager.get_user_plan_type()
+        if plan_type == 'free':
+            raise click.UsageError(
+                "Parallel execution (--parallel > 1) is only available for paid plans. "
+                "Please upgrade your plan to use this feature."
+            )
+    
+    output = cli_manager.run_folder(project_id, folder_id, junit=junit, html=html, return_data=not junit, parallelism=parallel)
     if not junit:
         pretty = json.dumps(output, indent=2, ensure_ascii=False)
         click.echo(pretty)
