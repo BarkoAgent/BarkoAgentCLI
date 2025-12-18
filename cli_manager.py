@@ -176,6 +176,11 @@ class CLIManager:
                 test_title=test_title
             )
         
+        if not junit and not html:
+            batch_report_id = data.get("batch_report_id")
+            if batch_report_id:
+                self._wait_for_batch_completion(batch_report_id)
+        
         if return_data:
             return data
 
@@ -231,8 +236,21 @@ class CLIManager:
                 report_type="all"
             )
         
+        if not junit and not html:
+            batch_report_id = data.get("batch_report_id")
+            if batch_report_id:
+                self._wait_for_batch_completion(batch_report_id)
+        
         if return_data:
             return data
+
+    def _wait_for_batch_completion(self, batch_report_id: str) -> None:
+        while True:
+            batch_report = self.get_batch_report_details(batch_report_id)
+            batch_status = batch_report.get("status", "").lower()
+            if batch_status in {"completed", "failed", "partial_failed"}:
+                break
+            time.sleep(2)
 
     def _build_dashboard_text(self, results: List[Dict[str, Any]], pending: List[Dict[str, Any]] = []) -> str:
         from rich.markup import escape
@@ -650,6 +668,12 @@ console.log('HTML report generated: {output_filename}');
                 report_type="folder",
                 folder_name=folder_name
             )
+        
+        # If no report flags, wait for batch to complete before returning
+        if not junit and not html:
+            batch_report_id = data.get("batch_report_id")
+            if batch_report_id:
+                self._wait_for_batch_completion(batch_report_id)
         
         if return_data:
             return data
