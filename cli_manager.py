@@ -93,6 +93,22 @@ class CLIManager:
         brain_state = res.json()
         return bool(brain_state['ready'])
 
+    def get_user_profile(self) -> Dict[str, Any]:
+        headers = {
+            "Authorization": f"Bearer {self.__token}",
+            "Accept": "application/json",
+        }
+        res = self.requests_session.get(f'{self.__endpoint}/api/users/profile', headers=headers, timeout=10)
+        res.raise_for_status()
+        return res.json()
+
+    def get_user_plan_type(self) -> str:
+        try:
+            profile = self.get_user_profile()
+            return profile.get('usage', {}).get('plan', {}).get('type', 'free')
+        except Exception:
+            return 'free'
+
     def run_single_script(self, project_id: str, chat_id: str, junit: bool = False, html: bool = False, return_data: bool = True) -> Any:
         # Poll brain_status until ready
         polling2.poll(
@@ -163,7 +179,7 @@ class CLIManager:
         if return_data:
             return data
 
-    def run_all_scripts(self, project_id: str, generate_report: bool = None, junit: bool = False, html: bool = False, return_data: bool = True) -> Any:
+    def run_all_scripts(self, project_id: str, generate_report: bool = None, junit: bool = False, html: bool = False, return_data: bool = True, parallelism: int = 1) -> Any:
         # Poll brain_status until ready
         polling2.poll(
             lambda: self.get_brain_status(project_id) == True,
@@ -176,7 +192,7 @@ class CLIManager:
             "Authorization": f"Bearer {self.__token}",
             "Accept": "application/json",
         }
-        res = self.requests_session.post(f'{self.__endpoint}/api/chats/run_script?project_id={project_id}', json={"generate_report": True}, headers=headers, timeout=10)
+        res = self.requests_session.post(f'{self.__endpoint}/api/chats/run_script?project_id={project_id}', json={"generate_report": True, "parallelism": parallelism}, headers=headers, timeout=10)
         res.raise_for_status()
         data = res.json()
         
@@ -552,7 +568,7 @@ console.log('HTML report generated: {output_filename}');
         res.raise_for_status()
         return res.json()
 
-    def run_folder(self, project_id: str, folder_id: str, junit: bool = False, html: bool = False, return_data: bool = True) -> Any:
+    def run_folder(self, project_id: str, folder_id: str, junit: bool = False, html: bool = False, return_data: bool = True, parallelism: int = 1) -> Any:
         polling2.poll(
             lambda: self.get_brain_status(project_id) == True,
             step=2,
@@ -579,7 +595,7 @@ console.log('HTML report generated: {output_filename}');
         
         res = self.requests_session.post(
             f'{self.__endpoint}/api/chats/run_folder/{project_id}/{folder_id}',
-            json={"generate_report": True},
+            json={"generate_report": True, "parallelism": parallelism},
             headers=headers,
             timeout=10
         )

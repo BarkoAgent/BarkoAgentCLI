@@ -36,13 +36,18 @@ python3 runner.py run-single-script --project-id=foo --chat-id=bar
 
 - `--junit` - Generate JUnit XML report
 - `--html` - Generate HTML test report
+- `--parallel=N` - Run tests with parallelism level 1-4 (default: 1). Values > 1 require a paid plan.
 
 Example usage:
 ```bash
 python3 runner.py run-all-scripts --project-id=foo --junit --html
+python3 runner.py run-all-scripts --project-id=foo --parallel=4
 python3 runner.py run-single-script --project-id=foo --chat-id=bar --junit --html
 python3 runner.py run-folder --project-id=foo --folder-id=baz --junit --html
+python3 runner.py run-folder --project-id=foo --folder-id=baz --parallel=2
 ```
+
+> **Note:** The `--parallel` flag is only available for `run-all-scripts` and `run-folder` commands. Parallelism levels 2-4 require a paid plan.
 
 If anything you can run help argument to get the necessary arguments to add 
 ```bash
