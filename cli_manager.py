@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 import time
 import subprocess
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import requests
 import polling2
@@ -34,14 +34,14 @@ class CLIManager:
 
 
     @classmethod
-    def __verify_correct_environment(cls, url: str | None) -> bool:
+    def __verify_correct_environment(cls, url: Optional[str]) -> bool:
         if url is None:
             raise ValueError("Please enter URL in your .env file!")
 
         reg_ex_result = re.search("https://[a-z]+.barkoagent.com",str(url))
         return reg_ex_result is not None
 
-    def configure(self, token: str | None = None, url: str | None = None) -> Dict[str, str]:
+    def configure(self, token: Optional[str] = None, url: Optional[str] = None) -> Dict[str, str]:
         current: Dict[str, str] = {}
         if self.__env_path.exists():
             for line in self.__env_path.read_text().splitlines():
@@ -59,7 +59,7 @@ class CLIManager:
         self.__endpoint = current.get("URL")
         self.__token = current.get("TOKEN")
         return current
-    def get_project_data(self, project_id: str) -> dict[str, int]:
+    def get_project_data(self, project_id: str) -> Dict[str, int]:
         headers = {
             "Authorization": f"Bearer {self.__token}",
             "Accept": "application/json",
@@ -74,7 +74,7 @@ class CLIManager:
         chats_info = raw_data[2]
         chat_entries_info = raw_data[4]
 
-        formatted_data: dict[str,int] = {
+        formatted_data: Dict[str, int] = {
             'chats_size': len(chats_info),
             'chat_entries_size': len(chat_entries_info)
         }
@@ -176,6 +176,11 @@ class CLIManager:
                 test_title=test_title
             )
         
+        if not junit and not html:
+            batch_report_id = data.get("batch_report_id")
+            if batch_report_id:
+                self._wait_for_batch_completion(batch_report_id)
+        
         if return_data:
             return data
 
@@ -231,8 +236,21 @@ class CLIManager:
                 report_type="all"
             )
         
+        if not junit and not html:
+            batch_report_id = data.get("batch_report_id")
+            if batch_report_id:
+                self._wait_for_batch_completion(batch_report_id)
+        
         if return_data:
             return data
+
+    def _wait_for_batch_completion(self, batch_report_id: str) -> None:
+        while True:
+            batch_report = self.get_batch_report_details(batch_report_id)
+            batch_status = batch_report.get("status", "").lower()
+            if batch_status in {"completed", "failed", "partial_failed"}:
+                break
+            time.sleep(2)
 
     def _build_dashboard_text(self, results: List[Dict[str, Any]], pending: List[Dict[str, Any]] = []) -> str:
         from rich.markup import escape
@@ -275,7 +293,7 @@ class CLIManager:
         from rich.markup import escape
         
         completed: List[Dict[str, Any]] = []
-        seen_ids: set[str] = set()
+        seen_ids: Set[str] = set()
         failure_detected = False
         start_times: Dict[str, float] = {}
         end_times: Dict[str, float] = {}
@@ -309,7 +327,12 @@ class CLIManager:
                     if exec_id not in seen_ids and test["complete"]:
                         seen_ids.add(exec_id)
                         end_times[exec_id] = time.time()
-                        duration = max(0.0, end_times[exec_id] - start_times[exec_id])
+                        
+                        if test.get("api_duration") is not None:
+                            duration = float(test["api_duration"])
+                        else:
+                            duration = max(0.0, end_times[exec_id] - start_times[exec_id])
+                        
                         test["time"] = duration
                         completed.append(test)
 
@@ -337,6 +360,7 @@ class CLIManager:
         exec_id = execution.get("chat_id", "")
         name = execution.get("chat_title", exec_id)
         output = execution.get("output", "")
+        duration = execution.get("duration_seconds")
 
         return {
             "id": exec_id,
@@ -345,6 +369,7 @@ class CLIManager:
             "failed": status_value == "failed",
             "complete": status_value in {"passed", "failed"},
             "output": output,
+            "api_duration": duration,
         }
 
     def get_test_results(self, project_id: str, payload: list) -> Any:
@@ -650,6 +675,12 @@ console.log('HTML report generated: {output_filename}');
                 report_type="folder",
                 folder_name=folder_name
             )
+        
+        # If no report flags, wait for batch to complete before returning
+        if not junit and not html:
+            batch_report_id = data.get("batch_report_id")
+            if batch_report_id:
+                self._wait_for_batch_completion(batch_report_id)
         
         if return_data:
             return data
