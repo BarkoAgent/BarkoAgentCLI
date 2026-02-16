@@ -5,3 +5,4 @@ polling2
 google-auth-oauthlib
 google-api-python-client
 rich
+websocket-client

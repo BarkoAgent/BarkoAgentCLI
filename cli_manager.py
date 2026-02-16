@@ -4,24 +4,37 @@ from pathlib import Path
 import re
 import time
 import subprocess
+import threading
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import requests
 import polling2
 import click
+import websocket as ws_client
 from dotenv import load_dotenv
 from rich.console import Console
 from utils.report_paths import ReportPathManager
 from utils.junit_xml import generate_junit_xml
 
 
+def _ws_recv_loop(conn):
+    try:
+        while True:
+            data = conn.recv()
+            if data is None:
+                break
+    except Exception:
+        pass
+
+
 class CLIManager:
     def __init__(self, skip_validation: bool = False) -> None:
-        load_dotenv('.env')
+        load_dotenv('.env', override=True)
         self.requests_session = requests.Session()
         self.__env_path = Path(".env")
         self.__token = os.getenv("TOKEN")
         self.__token_expiry = None
+        self.__ws_base_url = os.getenv("WS_BASE_URL")
         self._dashboard_mode: bool = False
         self._console = Console(highlight=False)
         self._dashboard_lines = 0
@@ -41,7 +54,7 @@ class CLIManager:
         reg_ex_result = re.search("https://[a-z]+.barkoagent.com",str(url))
         return reg_ex_result is not None
 
-    def configure(self, token: Optional[str] = None, url: Optional[str] = None) -> Dict[str, str]:
+    def configure(self, token: Optional[str] = None, url: Optional[str] = None, ws_url: Optional[str] = None) -> Dict[str, str]:
         current: Dict[str, str] = {}
         if self.__env_path.exists():
             for line in self.__env_path.read_text().splitlines():
@@ -53,11 +66,18 @@ class CLIManager:
             current["URL"] = url
         if token is not None:
             current["TOKEN"] = token
+        if ws_url is not None:
+            current["WS_BASE_URL"] = ws_url
 
-        lines = [f"URL={current.get('URL', '')}", f"TOKEN={current.get('TOKEN', '')}"]
+        lines = [
+            f"URL={current.get('URL', '')}",
+            f"TOKEN={current.get('TOKEN', '')}",
+            f"WS_BASE_URL={current.get('WS_BASE_URL', '')}",
+        ]
         self.__env_path.write_text("\n".join(lines))
         self.__endpoint = current.get("URL")
         self.__token = current.get("TOKEN")
+        self.__ws_base_url = current.get("WS_BASE_URL")
         return current
     def get_project_data(self, project_id: str) -> Dict[str, int]:
         headers = {
@@ -109,13 +129,88 @@ class CLIManager:
         except Exception:
             return 'free'
 
-    def run_single_script(self, project_id: str, chat_id: str, junit: bool = False, html: bool = False, return_data: bool = True) -> Any:
+    def get_websocket_endpoints(self, project_id: str) -> List[Dict[str, Any]]:
+        headers = {
+            "Authorization": f"Bearer {self.__token}",
+            "Accept": "application/json",
+        }
+        res = self.requests_session.get(
+            f'{self.__endpoint}/api/projects/{project_id}/websocket-endpoints',
+            headers=headers,
+            timeout=10,
+        )
+        res.raise_for_status()
+        data = res.json()
+        return data.get("websocket_endpoints", [])
+
+    def resolve_websocket_tags(
+        self, project_id: str, tags: Tuple[str, ...]
+    ) -> List[Dict[str, str]]:
+        if not tags:
+            return []
+
+        endpoints = self.get_websocket_endpoints(project_id)
+        tag_map: Dict[str, str] = {ep["tag"]: ep["uri"] for ep in endpoints}
+
+        resolved: List[Dict[str, str]] = []
+        for tag in tags:
+            uri = tag_map.get(tag)
+            if uri is None:
+                click.echo(f"Warning: WebSocket tag '{tag}' not found — skipping.")
+            else:
+                resolved.append({"tag": tag, "uri": uri})
+        return resolved
+
+    @staticmethod
+    def _open_websocket_connections(
+        resolved: List[Dict[str, str]],
+        ws_base_url: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        connections: List[Dict[str, Any]] = []
+        for entry in resolved:
+            tag, uri = entry["tag"], entry["uri"]
+            if not uri.startswith(("ws://", "wss://")):
+                if ws_base_url:
+                    uri = ws_base_url.rstrip("/") + "/" + uri.lstrip("/")
+                else:
+                    click.echo(f"Warning: WebSocket URI '{uri}' is not a full URL and no WS_BASE_URL configured — skipping '{tag}'.")
+                    continue
+            try:
+                conn = ws_client.WebSocket()
+                conn.connect(uri, timeout=10)
+                thread = threading.Thread(
+                    target=lambda c=conn: _ws_recv_loop(c),
+                    daemon=True,
+                )
+                thread.start()
+                connections.append({"tag": tag, "uri": uri, "ws": conn, "thread": thread})
+                click.echo(f"WebSocket connected: {tag} → {uri}")
+            except Exception as exc:
+                click.echo(f"Warning: could not connect to WebSocket '{tag}' ({uri}): {exc}")
+        return connections
+
+    @staticmethod
+    def _close_websocket_connections(connections: List[Dict[str, Any]]) -> None:
+        for entry in connections:
+            try:
+                entry["ws"].close()
+                click.echo(f"WebSocket closed: {entry['tag']}")
+            except Exception:
+                pass
+
+    def run_single_script(self, project_id: str, chat_id: str, junit: bool = False, html: bool = False, return_data: bool = True, websocket_tags: Tuple[str, ...] = ()) -> Any:
         # Poll brain_status until ready
         polling2.poll(
             lambda: self.get_brain_status(project_id) == True,
             step=2,
             poll_forever=True
         )
+
+        ws_connections: List[Dict[str, Any]] = []
+        if websocket_tags:
+            resolved = self.resolve_websocket_tags(project_id, websocket_tags)
+            ws_connections = self._open_websocket_connections(resolved, self.__ws_base_url)
+
         self._dashboard_mode = junit
         headers = {
             "Content-Type": "application/json",
@@ -181,16 +276,24 @@ class CLIManager:
             if batch_report_id:
                 self._wait_for_batch_completion(batch_report_id)
         
+        self._close_websocket_connections(ws_connections)
+
         if return_data:
             return data
 
-    def run_all_scripts(self, project_id: str, generate_report: bool = None, junit: bool = False, html: bool = False, return_data: bool = True, parallelism: int = 1) -> Any:
+    def run_all_scripts(self, project_id: str, generate_report: bool = None, junit: bool = False, html: bool = False, return_data: bool = True, parallelism: int = 1, websocket_tags: Tuple[str, ...] = ()) -> Any:
         # Poll brain_status until ready
         polling2.poll(
             lambda: self.get_brain_status(project_id) == True,
             step=2,
             poll_forever=True
         )
+
+        ws_connections: List[Dict[str, Any]] = []
+        if websocket_tags:
+            resolved = self.resolve_websocket_tags(project_id, websocket_tags)
+            ws_connections = self._open_websocket_connections(resolved, self.__ws_base_url)
+
         self._dashboard_mode = junit
         headers = {
             "Content-Type": "application/json",
@@ -241,6 +344,8 @@ class CLIManager:
             if batch_report_id:
                 self._wait_for_batch_completion(batch_report_id)
         
+        self._close_websocket_connections(ws_connections)
+
         if return_data:
             return data
 
@@ -593,12 +698,18 @@ console.log('HTML report generated: {output_filename}');
         res.raise_for_status()
         return res.json()
 
-    def run_folder(self, project_id: str, folder_id: str, junit: bool = False, html: bool = False, return_data: bool = True, parallelism: int = 1) -> Any:
+    def run_folder(self, project_id: str, folder_id: str, junit: bool = False, html: bool = False, return_data: bool = True, parallelism: int = 1, websocket_tags: Tuple[str, ...] = ()) -> Any:
         polling2.poll(
             lambda: self.get_brain_status(project_id) == True,
             step=2,
             poll_forever=True
         )
+
+        ws_connections: List[Dict[str, Any]] = []
+        if websocket_tags:
+            resolved = self.resolve_websocket_tags(project_id, websocket_tags)
+            ws_connections = self._open_websocket_connections(resolved, self.__ws_base_url)
+
         self._dashboard_mode = junit
         
         folder_name = None
@@ -682,6 +793,7 @@ console.log('HTML report generated: {output_filename}');
             if batch_report_id:
                 self._wait_for_batch_completion(batch_report_id)
         
+        self._close_websocket_connections(ws_connections)
+
         if return_data:
             return data
-
