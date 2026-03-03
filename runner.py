@@ -35,12 +35,13 @@ def cli(ctx, config):
 @cli.command()
 @click.option("--set-token", "token", help="set the auth token used by the CLI")
 @click.option("--set-url", "url", help="set the BarkoAgent API URL")
-def config(token, url):
-    if token is None and url is None:
-        raise click.UsageError("Provide --set-token, --set-url, or both.")
+@click.option("--set-ws-url", "ws_url", help="set the WebSocket base URL (e.g., ws://localhost:8345/ws)")
+def config(token, url, ws_url):
+    if token is None and url is None and ws_url is None:
+        raise click.UsageError("Provide --set-token, --set-url, --set-ws-url, or a combination.")
     cli_manager = CLIManager(skip_validation=True)
-    updated = cli_manager.configure(token=token, url=url)
-    click.echo(f"Configuration updated: URL={updated.get('URL','')}, TOKEN set={bool(updated.get('TOKEN'))}")
+    updated = cli_manager.configure(token=token, url=url, ws_url=ws_url)
+    click.echo(f"Configuration updated: URL={updated.get('URL','')}, WS_BASE_URL={updated.get('WS_BASE_URL','')}, TOKEN set={bool(updated.get('TOKEN'))}")
 
 @cli.command()
 @click.pass_context
@@ -64,10 +65,11 @@ def get_project_data(ctx, project_id):
 @click.option('--chat-id', help='chat ID for running single script')
 @click.option('--junit', is_flag=True, help='generate junit xml report')
 @click.option('--html', is_flag=True, help='generate html report')
+@click.option('--web-socket', 'web_socket', multiple=True, help='WebSocket endpoint tag (repeatable)')
 @click.pass_context
-def run_single_script(ctx, project_id, chat_id, junit, html):
+def run_single_script(ctx, project_id, chat_id, junit, html, web_socket):
     cli_manager = ctx.obj
-    output = cli_manager.run_single_script(project_id, chat_id, junit=junit, html=html, return_data=not junit)
+    output = cli_manager.run_single_script(project_id, chat_id, junit=junit, html=html, return_data=not junit, websocket_tags=web_socket)
     if not junit:
         pretty = json.dumps(output, indent=2, ensure_ascii=False)
         click.echo(pretty)
@@ -78,8 +80,9 @@ def run_single_script(ctx, project_id, chat_id, junit, html):
 @click.option('--junit', is_flag=True, help='generate junit xml report')
 @click.option('--html', is_flag=True, help='generate html report')
 @click.option('--parallel', type=int, default=1, help='parallelism level (1-4). Values > 1 require a paid plan.')
+@click.option('--web-socket', 'web_socket', multiple=True, help='WebSocket endpoint tag (repeatable)')
 @click.pass_context
-def run_all_scripts(ctx, project_id, junit, html, parallel):
+def run_all_scripts(ctx, project_id, junit, html, parallel, web_socket):
     cli_manager = ctx.obj
     
     if parallel < 1 or parallel > 4:
@@ -93,7 +96,7 @@ def run_all_scripts(ctx, project_id, junit, html, parallel):
                 "Please upgrade your plan to use this feature."
             )
     
-    output = cli_manager.run_all_scripts(project_id, junit=junit, html=html, return_data=not junit, parallelism=parallel)
+    output = cli_manager.run_all_scripts(project_id, junit=junit, html=html, return_data=not junit, parallelism=parallel, websocket_tags=web_socket)
     if not junit:
         pretty = json.dumps(output, indent=2, ensure_ascii=False)
         click.echo(pretty)
@@ -170,8 +173,9 @@ def get_folders(ctx, project_id):
 @click.option('--junit', is_flag=True, help='generate junit xml report')
 @click.option('--html', is_flag=True, help='generate html report')
 @click.option('--parallel', type=int, default=1, help='parallelism level (1-4). Values > 1 require a paid plan.')
+@click.option('--web-socket', 'web_socket', multiple=True, help='WebSocket endpoint tag (repeatable)')
 @click.pass_context
-def run_folder(ctx, project_id, folder_id, junit, html, parallel):
+def run_folder(ctx, project_id, folder_id, junit, html, parallel, web_socket):
     cli_manager = ctx.obj
     
     if parallel < 1 or parallel > 4:
@@ -185,7 +189,7 @@ def run_folder(ctx, project_id, folder_id, junit, html, parallel):
                 "Please upgrade your plan to use this feature."
             )
     
-    output = cli_manager.run_folder(project_id, folder_id, junit=junit, html=html, return_data=not junit, parallelism=parallel)
+    output = cli_manager.run_folder(project_id, folder_id, junit=junit, html=html, return_data=not junit, parallelism=parallel, websocket_tags=web_socket)
     if not junit:
         pretty = json.dumps(output, indent=2, ensure_ascii=False)
         click.echo(pretty)
