@@ -3,6 +3,24 @@ import json
 import click
 from cli_manager import CLIManager
 
+A11Y_POLICIES = ["after_navigation", "after_each_step", "selected_steps", "final_only"]
+
+def _build_a11y_config(accessibility, a11y_policy, a11y_steps):
+    if not accessibility:
+        return None
+    config = {"enabled": True, "policy": a11y_policy}
+    if a11y_policy == "selected_steps":
+        config["checkpoint_steps"] = [int(s.strip()) for s in a11y_steps.split(",")]
+    return config
+
+def _validate_a11y_flags(accessibility, a11y_policy, a11y_steps):
+    if not accessibility and (a11y_policy != "after_navigation" or a11y_steps):
+        raise click.UsageError("--a11y-policy and --a11y-steps require --accessibility to be set.")
+    if accessibility and a11y_policy == "selected_steps" and not a11y_steps:
+        raise click.UsageError("--a11y-steps is required when --a11y-policy is 'selected_steps'.")
+    if a11y_steps and a11y_policy != "selected_steps":
+        raise click.UsageError("--a11y-steps can only be used with --a11y-policy 'selected_steps'.")
+
 class JSONListOfDicts(click.ParamType):
     name = "json_list_of_dicts"
     def convert(self, value, param, ctx):
@@ -64,10 +82,16 @@ def get_project_data(ctx, project_id):
 @click.option('--chat-id', help='chat ID for running single script')
 @click.option('--junit', is_flag=True, help='generate junit xml report')
 @click.option('--html', is_flag=True, help='generate html report')
+@click.option('--environment-id', default=None, help='environment ID to use for this run')
+@click.option('--accessibility', is_flag=True, help='enable accessibility auditing for this run')
+@click.option('--a11y-policy', type=click.Choice(A11Y_POLICIES, case_sensitive=False), default='after_navigation', help='accessibility audit policy')
+@click.option('--a11y-steps', type=str, default=None, help='comma-separated step numbers for selected_steps policy (e.g. "1,5,10")')
 @click.pass_context
-def run_single_script(ctx, project_id, chat_id, junit, html):
+def run_single_script(ctx, project_id, chat_id, junit, html, environment_id, accessibility, a11y_policy, a11y_steps):
+    _validate_a11y_flags(accessibility, a11y_policy, a11y_steps)
+    a11y_config = _build_a11y_config(accessibility, a11y_policy, a11y_steps)
     cli_manager = ctx.obj
-    output = cli_manager.run_single_script(project_id, chat_id, junit=junit, html=html, return_data=not junit)
+    output = cli_manager.run_single_script(project_id, chat_id, junit=junit, html=html, return_data=not junit, environment_id=environment_id, replay_accessibility_audit=a11y_config)
     if not junit:
         pretty = json.dumps(output, indent=2, ensure_ascii=False)
         click.echo(pretty)
@@ -78,13 +102,14 @@ def run_single_script(ctx, project_id, chat_id, junit, html):
 @click.option('--junit', is_flag=True, help='generate junit xml report')
 @click.option('--html', is_flag=True, help='generate html report')
 @click.option('--parallel', type=int, default=1, help='parallelism level (1-4). Values > 1 require a paid plan.')
+@click.option('--environment-id', default=None, help='environment ID to use for this run')
 @click.pass_context
-def run_all_scripts(ctx, project_id, junit, html, parallel):
+def run_all_scripts(ctx, project_id, junit, html, parallel, environment_id):
     cli_manager = ctx.obj
-    
+
     if parallel < 1 or parallel > 4:
         raise click.UsageError("--parallel must be between 1 and 4")
-    
+
     if parallel > 1:
         plan_type = cli_manager.get_user_plan_type()
         if plan_type == 'free':
@@ -92,8 +117,8 @@ def run_all_scripts(ctx, project_id, junit, html, parallel):
                 "Parallel execution (--parallel > 1) is only available for paid plans. "
                 "Please upgrade your plan to use this feature."
             )
-    
-    output = cli_manager.run_all_scripts(project_id, junit=junit, html=html, return_data=not junit, parallelism=parallel)
+
+    output = cli_manager.run_all_scripts(project_id, junit=junit, html=html, return_data=not junit, parallelism=parallel, environment_id=environment_id)
     if not junit:
         pretty = json.dumps(output, indent=2, ensure_ascii=False)
         click.echo(pretty)
@@ -170,13 +195,14 @@ def get_folders(ctx, project_id):
 @click.option('--junit', is_flag=True, help='generate junit xml report')
 @click.option('--html', is_flag=True, help='generate html report')
 @click.option('--parallel', type=int, default=1, help='parallelism level (1-4). Values > 1 require a paid plan.')
+@click.option('--environment-id', default=None, help='environment ID to use for this run')
 @click.pass_context
-def run_folder(ctx, project_id, folder_id, junit, html, parallel):
+def run_folder(ctx, project_id, folder_id, junit, html, parallel, environment_id):
     cli_manager = ctx.obj
-    
+
     if parallel < 1 or parallel > 4:
         raise click.UsageError("--parallel must be between 1 and 4")
-    
+
     if parallel > 1:
         plan_type = cli_manager.get_user_plan_type()
         if plan_type == 'free':
@@ -184,8 +210,8 @@ def run_folder(ctx, project_id, folder_id, junit, html, parallel):
                 "Parallel execution (--parallel > 1) is only available for paid plans. "
                 "Please upgrade your plan to use this feature."
             )
-    
-    output = cli_manager.run_folder(project_id, folder_id, junit=junit, html=html, return_data=not junit, parallelism=parallel)
+
+    output = cli_manager.run_folder(project_id, folder_id, junit=junit, html=html, return_data=not junit, parallelism=parallel, environment_id=environment_id)
     if not junit:
         pretty = json.dumps(output, indent=2, ensure_ascii=False)
         click.echo(pretty)

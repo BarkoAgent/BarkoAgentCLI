@@ -109,7 +109,7 @@ class CLIManager:
         except Exception:
             return 'free'
 
-    def run_single_script(self, project_id: str, chat_id: str, junit: bool = False, html: bool = False, return_data: bool = True) -> Any:
+    def run_single_script(self, project_id: str, chat_id: str, junit: bool = False, html: bool = False, return_data: bool = True, environment_id: str = None, replay_accessibility_audit: dict = None) -> Any:
         # Poll brain_status until ready
         polling2.poll(
             lambda: self.get_brain_status(project_id) == True,
@@ -122,7 +122,12 @@ class CLIManager:
             "Authorization": f"Bearer {self.__token}",
             "Accept": "application/json",
         }
-        res = self.requests_session.post(f'{self.__endpoint}/api/chats/run_script/{project_id}/{chat_id}', json={"generate_report": True}, headers=headers, timeout=10)
+        body = {"generate_report": True}
+        if environment_id:
+            body["environment_id"] = environment_id
+        if replay_accessibility_audit:
+            body["replay_accessibility_audit"] = replay_accessibility_audit
+        res = self.requests_session.post(f'{self.__endpoint}/api/auto/projects/{project_id}/chats/{chat_id}/run', json=body, headers=headers, timeout=10)
         res.raise_for_status()
         data = res.json()
         
@@ -184,7 +189,7 @@ class CLIManager:
         if return_data:
             return data
 
-    def run_all_scripts(self, project_id: str, generate_report: bool = None, junit: bool = False, html: bool = False, return_data: bool = True, parallelism: int = 1) -> Any:
+    def run_all_scripts(self, project_id: str, generate_report: bool = None, junit: bool = False, html: bool = False, return_data: bool = True, parallelism: int = 1, environment_id: str = None) -> Any:
         # Poll brain_status until ready
         polling2.poll(
             lambda: self.get_brain_status(project_id) == True,
@@ -197,7 +202,10 @@ class CLIManager:
             "Authorization": f"Bearer {self.__token}",
             "Accept": "application/json",
         }
-        res = self.requests_session.post(f'{self.__endpoint}/api/chats/run_script?project_id={project_id}', json={"generate_report": True, "parallelism": parallelism}, headers=headers, timeout=10)
+        body = {"generate_report": True, "parallelism": parallelism}
+        if environment_id:
+            body["environment_id"] = environment_id
+        res = self.requests_session.post(f'{self.__endpoint}/api/auto/projects/{project_id}/run', json=body, headers=headers, timeout=10)
         res.raise_for_status()
         data = res.json()
         
@@ -593,7 +601,7 @@ console.log('HTML report generated: {output_filename}');
         res.raise_for_status()
         return res.json()
 
-    def run_folder(self, project_id: str, folder_id: str, junit: bool = False, html: bool = False, return_data: bool = True, parallelism: int = 1) -> Any:
+    def run_folder(self, project_id: str, folder_id: str, junit: bool = False, html: bool = False, return_data: bool = True, parallelism: int = 1, environment_id: str = None) -> Any:
         polling2.poll(
             lambda: self.get_brain_status(project_id) == True,
             step=2,
@@ -618,9 +626,12 @@ console.log('HTML report generated: {output_filename}');
             "Accept": "application/json",
         }
         
+        body = {"generate_report": True, "parallelism": parallelism}
+        if environment_id:
+            body["environment_id"] = environment_id
         res = self.requests_session.post(
-            f'{self.__endpoint}/api/chats/run_folder/{project_id}/{folder_id}',
-            json={"generate_report": True, "parallelism": parallelism},
+            f'{self.__endpoint}/api/auto/projects/{project_id}/folders/{folder_id}/run',
+            json=body,
             headers=headers,
             timeout=10
         )
@@ -684,4 +695,3 @@ console.log('HTML report generated: {output_filename}');
         
         if return_data:
             return data
-
