@@ -122,7 +122,7 @@ class CLIManager:
             "Authorization": f"Bearer {self.__token}",
             "Accept": "application/json",
         }
-        body = {"generate_report": True}
+        body = {"generate_report": True, "include_video": True, "include_video": True}
         if environment_id:
             body["environment_id"] = environment_id
         if replay_accessibility_audit:
@@ -202,7 +202,7 @@ class CLIManager:
             "Authorization": f"Bearer {self.__token}",
             "Accept": "application/json",
         }
-        body = {"generate_report": True, "parallelism": parallelism}
+        body = {"generate_report": True, "parallelism": parallelism, "include_video": True}
         if environment_id:
             body["environment_id"] = environment_id
         res = self.requests_session.post(f'{self.__endpoint}/api/auto/projects/{project_id}/run', json=body, headers=headers, timeout=10)
@@ -494,29 +494,27 @@ class CLIManager:
                 output_filename = path_manager.get_folder_report_path(project_name, folder_name or 'folder', batch_report_id)
             else:
                 output_filename = path_manager.get_all_reports_path(project_name, batch_report_id)
+            # Server-provided values are passed as JSON via stdin, never interpolated into the script
             node_script = f'''
-const {{ {template_function} }} = require('{template_path.as_posix()}');
+const {{ {template_function} }} = require({json.dumps(template_path.as_posix())});
 const fs = require('fs');
 
-const data = {json.dumps(report_data)};
+const input = JSON.parse(fs.readFileSync(0, 'utf-8'));
+const data = input.data;
 const html = {template_function}(data.reports, data.executions, data.projectName);
 
-fs.writeFileSync('{output_filename.as_posix()}', html, 'utf-8');
-console.log('HTML report generated: {output_filename}');
+fs.writeFileSync(input.outputPath, html, 'utf-8');
 '''
             output_filename.parent.mkdir(parents=True, exist_ok=True)
-            temp_script_path = Path('temp_generate_html.js')
-            temp_script_path.write_text(node_script)
-            
+
             result = subprocess.run(
-                ['node', str(temp_script_path)],
+                ['node', '-e', node_script],
+                input=json.dumps({'data': report_data, 'outputPath': output_filename.as_posix()}),
                 capture_output=True,
                 text=True,
                 timeout=30
             )
-            
-            temp_script_path.unlink()
-            
+
             if result.returncode == 0:
                 print(f"\x1b[1mHTML report generated: {output_filename}\x1b[0m")
             else:
@@ -626,7 +624,7 @@ console.log('HTML report generated: {output_filename}');
             "Accept": "application/json",
         }
         
-        body = {"generate_report": True, "parallelism": parallelism}
+        body = {"generate_report": True, "parallelism": parallelism, "include_video": True}
         if environment_id:
             body["environment_id"] = environment_id
         res = self.requests_session.post(

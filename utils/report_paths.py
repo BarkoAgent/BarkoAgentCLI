@@ -7,7 +7,7 @@ class ReportPathManager:
         self.base_dir = Path(base_dir)
     
     def sanitize_name(self, name: str, max_length: int = 50) -> str:
-        sanitized = re.sub(r'[<>:"/\\|?*]', '_', name)
+        sanitized = re.sub(r'[<>:"\'`/\\|?*\x00-\x1f]', '_', name)
         sanitized = re.sub(r'\s+', ' ', sanitized)
         sanitized = sanitized.strip()
         if len(sanitized) > max_length:
